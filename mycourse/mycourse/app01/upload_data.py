@@ -8,11 +8,12 @@ logger = logging.getLogger('app01')
 
 # ═══════════════════════ 旧版一步式接口（保留兼容） ═══════════════════════
 
-def extract_import_data(upload_file, file_format):
+def extract_import_data(upload_file, file_format, **kwargs):
     if file_format == 'course':
         return extract_course_data(upload_file)
     elif file_format == 'task':
-        return extract_task_data(upload_file)
+        course_id = kwargs.get('course_id')
+        return extract_task_data(upload_file, course_id)
     elif file_format == 'student':
         return extract_student_data(upload_file)
     elif file_format == 'teacher':
@@ -35,25 +36,68 @@ def extract_course_data(upload_file):
         return {'error': f'课程数据文件解析失败：{str(e)}'}
 
 
-def extract_task_data(upload_file):
+def extract_task_data(upload_file, course_id):
+    """解析作业 Excel 并写入指定课程。
+    Excel 列：A标题 B内容 C附件1名称 D附件1类型 E附件2名称 F附件2类型
+              G附件3名称 H附件3类型 I显示(Y/N)
+    课程由前端下拉框选定，截止日期默认导入日+120天。
+    """
+    from datetime import date, timedelta
+
+    if not course_id:
+        return {'error': '请先选择要导入的课程'}
+    course = models.Course.objects.filter(id=course_id).first()
+    if not course:
+        return {'error': f'课程 ID={course_id} 不存在'}
+
     try:
         wb = openpyxl.load_workbook(upload_file)
         ws = wb[wb.sheetnames[0]]
-        rows = ws.max_row
-        tasks = []
-        for row in range(2, rows + 1):
-            id_val, title, content, slot1Type, display = (
-                ws.cell(row, 1).value, ws.cell(row, 2).value,
-                ws.cell(row, 3).value, ws.cell(row, 4).value, ws.cell(row, 5).value
-            )
-            if id_val and title and content:
-                display = True if display == 'Y' else False
-                tasks.append([int(id_val), title, content, slot1Type or '*', display])
-            else:
+        default_deadline = date.today() + timedelta(days=120)
+        created, skipped = 0, 0
+
+        for row in range(2, ws.max_row + 1):
+            title = ws.cell(row, 1).value
+            content = ws.cell(row, 2).value
+            if not title or not content:
                 break
 
-        write_task_data(tasks)
-        return {'success': '作业数据文件解析成功'}
+            slot1Name = ws.cell(row, 3).value or ''
+            slot1Type = ws.cell(row, 4).value or '*'
+            slot2Name = ws.cell(row, 5).value or ''
+            slot2Type = ws.cell(row, 6).value or ''
+            slot3Name = ws.cell(row, 7).value or ''
+            slot3Type = ws.cell(row, 8).value or ''
+            display_val = ws.cell(row, 9).value
+            display = False if str(display_val).strip().upper() == 'N' else True
+
+            max_files = 1
+            if slot2Name:
+                max_files = 2
+            if slot3Name:
+                max_files = 3
+
+            if models.Task.objects.filter(courseBelongTo=course, title=str(title).strip()).exists():
+                skipped += 1
+                continue
+
+            models.Task.objects.create(
+                title=str(title).strip(),
+                content=str(content).strip(),
+                courseBelongTo=course,
+                deadline=default_deadline,
+                display=display,
+                maxFiles=max_files,
+                slot1Name=slot1Name, slot1Type=slot1Type,
+                slot2Name=slot2Name, slot2Type=slot2Type,
+                slot3Name=slot3Name, slot3Type=slot3Type,
+            )
+            created += 1
+
+        msg = f'导入完成：新增 {created} 个作业'
+        if skipped:
+            msg += f'，跳过 {skipped} 个同名作业'
+        return {'success': msg}
     except Exception as e:
         logger.exception("作业数据解析失败")
         return {'error': f'作业数据文件解析失败：{str(e)}'}
@@ -302,13 +346,5 @@ def write_teacher_users(teacher_list):
 
 
 def write_task_data(tasks):
-    """创建作业数据"""
-    for task in tasks:
-        course = models.Course.objects.filter(id=task[0]).first()
-        if course:
-            if not models.Task.objects.filter(courseBelongTo=course, title=task[1]).exists():
-                logger.info("创建作业: course=%s, title=%s", course, task[1])
-                models.Task.objects.create(
-                    title=task[1], content=task[2], slot1Type=task[3],
-                    courseBelongTo=course, display=task[4],
-                )
+    """已废弃，保留空壳兼容旧调用"""
+    logger.warning("write_task_data 已废弃，请使用 extract_task_data(file, course_id)")

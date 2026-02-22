@@ -37,6 +37,25 @@
 <input type="hidden" id="csrf-token" value="{{ csrf_token }}">
 <input type="hidden" id="datatype" value="{{ datatype }}">
 
+{% if datatype == 'task' %}
+<div class="card mb-3">
+  <div class="card-body">
+    <label for="course-select" class="form-label fw-bold">
+      <i class="bi bi-book"></i> 选择要导入作业的课程
+    </label>
+    <select id="course-select" class="form-select">
+      <option value="">-- 请选择课程 --</option>
+      {% for c in courses %}
+      <option value="{{ c.id }}">{{ c.courseTerm }} / {{ c.courseName }}（{{ c.classNumber }}班）</option>
+      {% endfor %}
+    </select>
+    {% if not courses %}
+    <div class="text-muted mt-2">暂无课程，请先导入课程数据。</div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 <div class="card">
   <div class="card-body">
     <!-- 拖拽上传区域 -->
@@ -163,6 +182,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
     var fd = new FormData();
     var dt = document.getElementById('datatype').value;
+
+    if(dt === 'task'){
+      var courseSelect = document.getElementById('course-select');
+      if(!courseSelect || !courseSelect.value){
+        alert('请先选择要导入作业的课程！');
+        processBtn.disabled = false;
+        processBtn.innerHTML = '<i class="bi bi-upload"></i> 上传文件';
+        return;
+      }
+      fd.append('course_id', courseSelect.value);
+    }
+
     selectedFiles.forEach(function(f, i){
       fd.append('file_' + i, f);
       fd.append('datatype', dt);

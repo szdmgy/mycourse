@@ -940,6 +940,8 @@ def file_upload_view(request, type):
         'file_text': file_text,
         'allowed_extensions': ".xls,.xlsx,.xlsm",
     }
+    if type == 'task':
+        context['courses'] = models.Course.objects.all().order_by('-courseTerm', 'courseName')
     return render(request, 'upload_files.html', context)
 
 
@@ -960,9 +962,13 @@ def process_files(request):
                 'success': False, 'error': '未收到任何文件', 'file_count': 0,
             }, status=400)
 
+        extra_kwargs = {}
+        if datatype == 'task':
+            extra_kwargs['course_id'] = request.POST.get('course_id')
+
         results = []
         for uploaded_file in files:
-            result = extract_import_data(uploaded_file, datatype)
+            result = extract_import_data(uploaded_file, datatype, **extra_kwargs)
             status = result.get('success', result.get('error', '未知状态'))
             results.append({'filename': uploaded_file.name, 'status': status})
 
