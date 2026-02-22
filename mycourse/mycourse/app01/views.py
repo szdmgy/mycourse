@@ -17,7 +17,10 @@ from django import forms
 
 from app01 import models
 from app01.models import Task, UserProfile, HomeworkFile
-from app01.upload_data import extract_import_data, parse_course_excel, preview_course_import, write_course_data
+from app01.upload_data import (
+    extract_import_data, parse_course_excel, preview_course_import, write_course_data,
+    parse_task_excel, write_task_import,
+)
 from app01.utils import file_iterator, is_teacher_or_admin, get_display_name, safe_filename
 from mycourse.settings import BASE_DIR, FILES_ROOT
 
@@ -940,8 +943,6 @@ def file_upload_view(request, type):
         'file_text': file_text,
         'allowed_extensions': ".xls,.xlsx,.xlsm",
     }
-    if type == 'task':
-        context['courses'] = models.Course.objects.all().order_by('-courseTerm', 'courseName')
     return render(request, 'upload_files.html', context)
 
 
@@ -962,13 +963,9 @@ def process_files(request):
                 'success': False, 'error': '未收到任何文件', 'file_count': 0,
             }, status=400)
 
-        extra_kwargs = {}
-        if datatype == 'task':
-            extra_kwargs['course_id'] = request.POST.get('course_id')
-
         results = []
         for uploaded_file in files:
-            result = extract_import_data(uploaded_file, datatype, **extra_kwargs)
+            result = extract_import_data(uploaded_file, datatype)
             status = result.get('success', result.get('error', '未知状态'))
             results.append({'filename': uploaded_file.name, 'status': status})
 
@@ -1196,6 +1193,55 @@ def copyTasks(request):
             errors.append(f'实验 ID={task_id} 不存在')
 
     return JsonResponse({'success': True, 'copied': copied, 'errors': errors})
+
+
+@login_required
+@require_POST
+def preview_task_import(request):
+    """AJAX: 接收 Excel 文件 + courseID，解析后返回预览 JSON，数据存 session。"""
+    if not request.user.is_superuser:
+        return JsonResponse({'error': '仅管理员可执行此操作'}, status=403)
+
+    course_id = request.POST.get('course_id')
+    upload_file = request.FILES.get('file')
+    if not course_id or not upload_file:
+        return JsonResponse({'error': '缺少课程或文件'}, status=400)
+
+    course = models.Course.objects.filter(id=course_id).first()
+    if not course:
+        return JsonResponse({'error': '课程不存在'}, status=404)
+
+    result = parse_task_excel(upload_file, course)
+    if 'error' in result:
+        return JsonResponse({'error': result['error']}, status=400)
+
+    request.session['pending_task_import'] = {
+        'course_id': int(course_id),
+        'tasks': result['tasks'],
+    }
+    return JsonResponse({
+        'tasks': result['tasks'],
+        'course_name': f'{course.courseTerm} / {course.courseName}（{course.classNumber}班）',
+    })
+
+
+@login_required
+@require_POST
+def confirm_task_import(request):
+    """AJAX: 从 session 读取预览数据，写入数据库。"""
+    if not request.user.is_superuser:
+        return JsonResponse({'error': '仅管理员可执行此操作'}, status=403)
+
+    pending = request.session.pop('pending_task_import', None)
+    if not pending:
+        return JsonResponse({'error': '没有待确认的导入数据，请重新上传'}, status=400)
+
+    course = models.Course.objects.filter(id=pending['course_id']).first()
+    if not course:
+        return JsonResponse({'error': '课程不存在'}, status=404)
+
+    result = write_task_import(pending['tasks'], course)
+    return JsonResponse(result)
 
 
 def create_student_user():

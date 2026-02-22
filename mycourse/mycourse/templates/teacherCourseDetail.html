@@ -70,6 +70,11 @@
       <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#reuseModal" onclick="loadHistoryTasks()">
         <i class="bi bi-arrow-repeat"></i> 从历史复用
       </button>
+      {% if user.is_superuser %}
+      <button class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#importTaskModal">
+        <i class="bi bi-file-earmark-arrow-up"></i> 导入实验
+      </button>
+      {% endif %}
     </div>
   </div>
 
@@ -470,6 +475,54 @@
   </div>
 </div>
 
+{% if user.is_superuser %}
+<!-- ════════ 模态框：导入实验 ════════ -->
+<div class="modal fade" id="importTaskModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-file-earmark-arrow-up"></i> 导入实验（Excel）</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <!-- 步骤 1：上传 -->
+        <div id="import-step-upload">
+          <p class="text-muted" style="font-size:.85rem;">
+            Excel 格式：标题 | 内容 | 附件1名称 | 附件1类型 | 附件2名称 | 附件2类型 | 附件3名称 | 附件3类型 | 显示(Y/N)<br>
+            其中附件1为必填，附件2/3选填；截止日期自动设为导入日 + 120 天。
+          </p>
+          <input type="file" id="importTaskFile" class="form-control" accept=".xls,.xlsx,.xlsm">
+          <div id="importTaskError" class="text-danger mt-2" style="display:none;"></div>
+        </div>
+        <!-- 步骤 2：预览 -->
+        <div id="import-step-preview" style="display:none;">
+          <div class="alert alert-info py-2" id="importPreviewSummary"></div>
+          <div class="table-responsive">
+            <table class="table table-sm table-hover">
+              <thead>
+                <tr><th>#</th><th>标题</th><th>内容</th><th>附件</th><th>显示</th><th>状态</th></tr>
+              </thead>
+              <tbody id="importPreviewBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <!-- 步骤 3：结果 -->
+        <div id="import-step-result" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+        <button type="button" class="btn btn-primary" id="importPreviewBtn" onclick="doPreviewTaskImport()">
+          <i class="bi bi-eye"></i> 预览
+        </button>
+        <button type="button" class="btn btn-success" id="importConfirmBtn" onclick="doConfirmTaskImport()" style="display:none;">
+          <i class="bi bi-check-lg"></i> 确认导入
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block extra_js %}
@@ -605,6 +658,109 @@ function submitReuse(){
     error: function(){ alert('导入失败！'); }
   });
 }
+
+/* ── 导入实验：预览 ── */
+function doPreviewTaskImport(){
+  var fileInput = document.getElementById('importTaskFile');
+  var errDiv = document.getElementById('importTaskError');
+  errDiv.style.display = 'none';
+  if(!fileInput.files.length){ errDiv.textContent='请选择 Excel 文件'; errDiv.style.display=''; return; }
+
+  var fd = new FormData();
+  fd.append('file', fileInput.files[0]);
+  fd.append('course_id', COURSE_ID);
+
+  var btn = document.getElementById('importPreviewBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> 解析中...';
+
+  fetch('{% url "preview_task_import" %}', {
+    method:'POST', body:fd, headers:{'X-CSRFToken': CSRF}
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+  .then(function(res){
+    btn.disabled = false; btn.innerHTML = '<i class="bi bi-eye"></i> 预览';
+    if(!res.ok){
+      errDiv.textContent = res.data.error || '解析失败'; errDiv.style.display=''; return;
+    }
+    renderTaskPreview(res.data);
+  }).catch(function(e){
+    btn.disabled = false; btn.innerHTML = '<i class="bi bi-eye"></i> 预览';
+    errDiv.textContent = '请求失败：' + e.message; errDiv.style.display='';
+  });
+}
+
+function renderTaskPreview(data){
+  document.getElementById('import-step-upload').style.display = 'none';
+  document.getElementById('import-step-preview').style.display = '';
+  document.getElementById('importPreviewBtn').style.display = 'none';
+  document.getElementById('importConfirmBtn').style.display = '';
+
+  var tasks = data.tasks;
+  var newCount = 0, dupCount = 0;
+  tasks.forEach(function(t){ t.duplicate ? dupCount++ : newCount++; });
+
+  document.getElementById('importPreviewSummary').innerHTML =
+    '课程：<strong>' + data.course_name + '</strong> &nbsp;|&nbsp; ' +
+    '共 <strong>' + tasks.length + '</strong> 条 &nbsp;|&nbsp; ' +
+    '新增 <strong class="text-success">' + newCount + '</strong> &nbsp; ' +
+    '重复 <strong class="text-warning">' + dupCount + '</strong>（将跳过）';
+
+  var tbody = document.getElementById('importPreviewBody');
+  tbody.innerHTML = '';
+  tasks.forEach(function(t, i){
+    var slots = t.slot1Name + (t.slot1Type!='*' ? '('+t.slot1Type+')' : '');
+    if(t.slot2Name) slots += '、' + t.slot2Name + (t.slot2Type ? '('+t.slot2Type+')' : '');
+    if(t.slot3Name) slots += '、' + t.slot3Name + (t.slot3Type ? '('+t.slot3Type+')' : '');
+    var statusBadge = t.duplicate
+      ? '<span class="badge bg-warning">重复-跳过</span>'
+      : '<span class="badge bg-success">新增</span>';
+    var row = '<tr' + (t.duplicate ? ' class="table-warning"' : '') + '>' +
+      '<td>' + (i+1) + '</td>' +
+      '<td>' + t.title + '</td>' +
+      '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + t.content + '</td>' +
+      '<td>' + slots + '</td>' +
+      '<td>' + (t.display ? '是' : '否') + '</td>' +
+      '<td>' + statusBadge + '</td></tr>';
+    tbody.innerHTML += row;
+  });
+}
+
+/* ── 导入实验：确认写入 ── */
+function doConfirmTaskImport(){
+  var btn = document.getElementById('importConfirmBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> 写入中...';
+
+  fetch('{% url "confirm_task_import" %}', {
+    method:'POST', headers:{'X-CSRFToken': CSRF, 'Content-Type':'application/json'}
+  }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+  .then(function(res){
+    var resultDiv = document.getElementById('import-step-result');
+    document.getElementById('import-step-preview').style.display = 'none';
+    document.getElementById('importConfirmBtn').style.display = 'none';
+    resultDiv.style.display = '';
+    if(res.ok && res.data.success){
+      resultDiv.innerHTML = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> ' + res.data.success + '</div>';
+      setTimeout(function(){ location.reload(); }, 1500);
+    } else {
+      resultDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + (res.data.error || '写入失败') + '</div>';
+    }
+  }).catch(function(e){
+    btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-lg"></i> 确认导入';
+    alert('请求失败：' + e.message);
+  });
+}
+
+/* ── 导入实验：模态框关闭时重置 ── */
+document.getElementById('importTaskModal')&&
+document.getElementById('importTaskModal').addEventListener('hidden.bs.modal', function(){
+  document.getElementById('import-step-upload').style.display = '';
+  document.getElementById('import-step-preview').style.display = 'none';
+  document.getElementById('import-step-result').style.display = 'none';
+  document.getElementById('importPreviewBtn').style.display = '';
+  document.getElementById('importConfirmBtn').style.display = 'none';
+  document.getElementById('importTaskFile').value = '';
+  document.getElementById('importTaskError').style.display = 'none';
+  document.getElementById('importPreviewBody').innerHTML = '';
+});
 
 /* ── 保持 Tab 状态（刷新后记住选中 Tab） ── */
 (function(){

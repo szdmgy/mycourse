@@ -8,12 +8,11 @@ logger = logging.getLogger('app01')
 
 # ═══════════════════════ 旧版一步式接口（保留兼容） ═══════════════════════
 
-def extract_import_data(upload_file, file_format, **kwargs):
+def extract_import_data(upload_file, file_format):
     if file_format == 'course':
         return extract_course_data(upload_file)
     elif file_format == 'task':
-        course_id = kwargs.get('course_id')
-        return extract_task_data(upload_file, course_id)
+        return {'error': '作业导入请从课程详情页的"导入实验"功能操作'}
     elif file_format == 'student':
         return extract_student_data(upload_file)
     elif file_format == 'teacher':
@@ -36,31 +35,26 @@ def extract_course_data(upload_file):
         return {'error': f'课程数据文件解析失败：{str(e)}'}
 
 
-def extract_task_data(upload_file, course_id):
-    """解析作业 Excel 并写入指定课程。
+def parse_task_excel(upload_file, course):
+    """纯解析作业 Excel，返回预览数据（不写入数据库）。
     Excel 列：A标题 B内容 C附件1名称 D附件1类型 E附件2名称 F附件2类型
               G附件3名称 H附件3类型 I显示(Y/N)
-    课程由前端下拉框选定，截止日期默认导入日+120天。
     """
-    from datetime import date, timedelta
-
-    if not course_id:
-        return {'error': '请先选择要导入的课程'}
-    course = models.Course.objects.filter(id=course_id).first()
-    if not course:
-        return {'error': f'课程 ID={course_id} 不存在'}
-
     try:
         wb = openpyxl.load_workbook(upload_file)
         ws = wb[wb.sheetnames[0]]
-        default_deadline = date.today() + timedelta(days=120)
-        created, skipped = 0, 0
-
+        existing_titles = set(
+            models.Task.objects.filter(courseBelongTo=course)
+            .values_list('title', flat=True)
+        )
+        tasks = []
         for row in range(2, ws.max_row + 1):
             title = ws.cell(row, 1).value
             content = ws.cell(row, 2).value
             if not title or not content:
                 break
+            title = str(title).strip()
+            content = str(content).strip()
 
             slot1Name = ws.cell(row, 3).value or ''
             slot1Type = ws.cell(row, 4).value or '*'
@@ -68,7 +62,7 @@ def extract_task_data(upload_file, course_id):
             slot2Type = ws.cell(row, 6).value or ''
             slot3Name = ws.cell(row, 7).value or ''
             slot3Type = ws.cell(row, 8).value or ''
-            display_val = ws.cell(row, 9).value
+            display_val = ws.cell(row, 9).value or ''
             display = False if str(display_val).strip().upper() == 'N' else True
 
             max_files = 1
@@ -77,30 +71,42 @@ def extract_task_data(upload_file, course_id):
             if slot3Name:
                 max_files = 3
 
-            if models.Task.objects.filter(courseBelongTo=course, title=str(title).strip()).exists():
-                skipped += 1
-                continue
+            tasks.append({
+                'title': title, 'content': content,
+                'maxFiles': max_files, 'display': display,
+                'slot1Name': slot1Name, 'slot1Type': slot1Type,
+                'slot2Name': slot2Name, 'slot2Type': slot2Type,
+                'slot3Name': slot3Name, 'slot3Type': slot3Type,
+                'duplicate': title in existing_titles,
+            })
 
-            models.Task.objects.create(
-                title=str(title).strip(),
-                content=str(content).strip(),
-                courseBelongTo=course,
-                deadline=default_deadline,
-                display=display,
-                maxFiles=max_files,
-                slot1Name=slot1Name, slot1Type=slot1Type,
-                slot2Name=slot2Name, slot2Type=slot2Type,
-                slot3Name=slot3Name, slot3Type=slot3Type,
-            )
-            created += 1
-
-        msg = f'导入完成：新增 {created} 个作业'
-        if skipped:
-            msg += f'，跳过 {skipped} 个同名作业'
-        return {'success': msg}
+        if not tasks:
+            return {'error': 'Excel 中未解析到有效作业数据'}
+        return {'tasks': tasks}
     except Exception as e:
-        logger.exception("作业数据解析失败")
-        return {'error': f'作业数据文件解析失败：{str(e)}'}
+        logger.exception("作业 Excel 解析失败")
+        return {'error': f'Excel 解析失败：{str(e)}'}
+
+
+def write_task_import(tasks_data, course):
+    """将预览确认后的作业数据写入数据库（仅写入非重复项）。"""
+    from datetime import date, timedelta
+    default_deadline = date.today() + timedelta(days=120)
+    created = 0
+    for t in tasks_data:
+        if t.get('duplicate'):
+            continue
+        models.Task.objects.create(
+            title=t['title'], content=t['content'],
+            courseBelongTo=course,
+            deadline=default_deadline, display=t['display'],
+            maxFiles=t['maxFiles'],
+            slot1Name=t.get('slot1Name', ''), slot1Type=t.get('slot1Type', '*'),
+            slot2Name=t.get('slot2Name', ''), slot2Type=t.get('slot2Type', ''),
+            slot3Name=t.get('slot3Name', ''), slot3Type=t.get('slot3Type', ''),
+        )
+        created += 1
+    return {'success': f'导入完成：新增 {created} 个作业'}
 
 
 def extract_student_data(upload_file):
@@ -347,4 +353,4 @@ def write_teacher_users(teacher_list):
 
 def write_task_data(tasks):
     """已废弃，保留空壳兼容旧调用"""
-    logger.warning("write_task_data 已废弃，请使用 extract_task_data(file, course_id)")
+    logger.warning("write_task_data 已废弃，请使用 parse_task_excel + write_task_import")

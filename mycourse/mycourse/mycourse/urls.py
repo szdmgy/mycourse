@@ -48,6 +48,8 @@ urlpatterns = [
     path('manager/import/', views.import_data, name='import_data'),
     path('preview-import/', views.preview_import, name='preview_import'),
     path('confirm-import/', views.confirm_import, name='confirm_import'),
+    path('preview-task-import/', views.preview_task_import, name='preview_task_import'),
+    path('confirm-task-import/', views.confirm_task_import, name='confirm_task_import'),
     path('addMemberByManager/', views.addMemberByManager, name='addMemberByManager'),
     path('deleteMemberByManager/<str:memberNumber>/', views.deleteMemberByManager, name='deleteMemberByManager'),
     # 老师端操作
