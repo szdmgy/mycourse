@@ -348,8 +348,9 @@
     </div>
   </div>
 
+  {% if user.is_superuser %}
   <div class="card border-danger">
-    <div class="card-header bg-danger text-white"><strong>危险操作</strong></div>
+    <div class="card-header bg-danger text-white"><strong>危险操作（仅管理员）</strong></div>
     <div class="card-body">
       <p>删除课程将同时删除该课程的所有作业、提交记录和文件。此操作<strong>不可恢复</strong>。</p>
       <button class="btn btn-danger"
@@ -358,6 +359,7 @@
       </button>
     </div>
   </div>
+  {% endif %}
 </div>
 
 </div><!-- /tab-content -->

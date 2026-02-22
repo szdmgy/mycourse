@@ -531,8 +531,8 @@ def addCourse(request):
 
 @login_required
 def deleteCourse(request, courseNumber, courseName):
-    if not is_teacher_or_admin(request.user):
-        return HttpResponse("您没有权限删除课程！")
+    if not request.user.is_superuser:
+        return HttpResponse("仅管理员可以删除课程！")
     course = models.Course.objects.filter(courseName=courseName, courseNumber=courseNumber).first()
     if course:
         course.delete()
