@@ -45,15 +45,12 @@ urlpatterns = [
     path('manager/user/', views.user_list, name='user_list'),
     path('manager/removeuser/<str:username>/', views.remove_user, name='removeUser'),
 
-    # path('upload-files/course/', views.file_upload_course, name='file_upload_course'),
-
     path('manager/import/', views.import_data, name='import_data'),
     path('preview-import/', views.preview_import, name='preview_import'),
     path('confirm-import/', views.confirm_import, name='confirm_import'),
     path('addMemberByManager/', views.addMemberByManager, name='addMemberByManager'),
     path('deleteMemberByManager/<str:memberNumber>/', views.deleteMemberByManager, name='deleteMemberByManager'),
     # 老师端操作
-    # path('exportDelayRecords/', views.exportDelayRecords, name='exportDelayRecords'),
     path('delayRecords/<int:courseID>/',views.delayRecords,name='delayRecords'),
     path('homeworkRecords/<int:taskID>/<str:taskTitle>/',views.homeworkRecords,name='homeworkRecords'),
     path('resetPassword/',views.resetPassword,name='resetPassword'),
@@ -69,7 +66,6 @@ urlpatterns = [
     path('download-homework-file/<int:file_id>/', views.download_homework_file, name='download_homework_file'),
     path('changeCourseMsgByTeacher/', views.changeCourseMsgByTeacher, name='changeCourseMsgByTeacher'),
     path('deleteTaskByTeacher/<str:taskId>/', views.deleteTaskByTeacher, name='deleteTaskByTeacher'),
-    path('removeStudentFromCourse/<str:courseNumber>/<str:courseName>/<str:studentNumber>/', views.removeStudentFromCourse, name='removeStudentFromCourse'),
     path('removeStudent/<int:courseID>/<str:studentNumber>/', views.removeStudent, name='removeStudent'),
     path('addStudentToCourseByTeacher/', views.addStudentToCourseByTeacher, name='addStudentToCourseByTeacher'),
     path('downloadStudentListTemplate/', views.downloadStudentListTemplate, name='downloadStudentListTemplate'),

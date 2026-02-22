@@ -250,25 +250,8 @@ def studentCourse(request, courseTerm, courseName, classNumber):
 
 @login_required
 def studentGetTaskByCoursename(request, courseTerm, courseName, classNumber):
-    course = models.Course.objects.filter(
-        courseTerm=courseTerm, courseName=courseName, classNumber=classNumber
-    ).first()
-    tasks = [t for t in models.Task.objects.filter(courseBelongTo=course) if t.display]
-
-    judge_list = []
-    for task in tasks:
-        homework = models.Homework.objects.filter(user=request.user.profile, task=task).first()
-        if homework:
-            submitted = HomeworkFile.objects.filter(homework=homework).count()
-            judge_list.append(f'{submitted}/{task.maxFiles}')
-        else:
-            judge_list.append('False')
-
-    context = {
-        'task': zip(tasks, judge_list),
-        'name': get_display_name(request.user),
-    }
-    return render(request, 'studentTasks.html', context)
+    return redirect('studentCourse', courseTerm=courseTerm,
+                    courseName=courseName, classNumber=classNumber)
 
 
 @login_required
