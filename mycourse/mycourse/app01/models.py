@@ -103,27 +103,25 @@ def default_deadline():
     return timezone.now() + timezone.timedelta(days=130)
 
 class Task(models.Model):
-    # 作业的标题
-    title = models.CharField('标题',max_length=100,null=False,unique=False, default='未命名作业')
-    # 作业正文
-    content = models.TextField('内容',default='请修改作业正文~')
-    # 是否显示
+    title = models.CharField('标题', max_length=100, null=False, unique=False, default='未命名作业')
+    content = models.TextField('内容', default='请修改作业正文~')
     display = models.BooleanField('是否显示', default=True, help_text='勾选表示显示作业')
-    # 此次作业属于哪个课程
-    courseBelongTo = models.ForeignKey(Course, on_delete=models.CASCADE,verbose_name='所属课程')
-    # 此次作业可以上传的文件类型
-    uploadFileType = models.CharField('上传类型',max_length=30, default='*')
-    #截止时间
+    courseBelongTo = models.ForeignKey(Course, on_delete=models.CASCADE, verbose_name='所属课程')
+    uploadFileType = models.CharField('上传类型', max_length=30, default='*')
+    deadline = models.DateField('截止日期', default=default_deadline)
 
-    deadline = models.DateField('截止日期',default=default_deadline)
+    maxFiles = models.IntegerField('最大附件数', default=1,
+                                   help_text='允许上传的附件数量（1~3）')
+    slot1Name = models.CharField('附件槽1名称', max_length=50, default='实验报告')
+    slot2Name = models.CharField('附件槽2名称', max_length=50, blank=True, default='')
+    slot3Name = models.CharField('附件槽3名称', max_length=50, blank=True, default='')
 
     class Meta:
         verbose_name = "作业"
-        # 方式 2：Django 3.2+ 推荐（更灵活）
         constraints = [
             models.UniqueConstraint(
-                fields=['courseBelongTo', 'title'],  # 联合字段
-                name='unique_course_title'  # 约束名（必填）
+                fields=['courseBelongTo', 'title'],
+                name='unique_course_title'
             )
         ]
 
@@ -131,20 +129,35 @@ class Task(models.Model):
         return self.title
 
 
-# 一个提交记录就是一个数据
 class Homework(models.Model):
-    # 此次提交的用户是谁
     user = models.ForeignKey(UserProfile, on_delete=models.CASCADE, default='')
-    # 此次提交的作业是
     task = models.ForeignKey(Task, on_delete=models.CASCADE, default='')
-    # 提交的时间
     time = models.DateTimeField(auto_now=True)
-    # 文件的路径
-    filePath = models.CharField(max_length=100, default='/file', null=False, unique=False)
-
 
     class Meta:
         verbose_name = "提交记录"
+
+    def __str__(self):
+        return f'{self.user} - {self.task}'
+
+
+class HomeworkFile(models.Model):
+    homework = models.ForeignKey(Homework, on_delete=models.CASCADE, related_name='files')
+    slot = models.IntegerField('槽位', help_text='对应附件槽位 1/2/3')
+    filePath = models.CharField('文件路径', max_length=255, default='')
+    originalName = models.CharField('原始文件名', max_length=200, default='')
+
+    class Meta:
+        verbose_name = "提交文件"
+        constraints = [
+            models.UniqueConstraint(
+                fields=['homework', 'slot'],
+                name='unique_homework_slot'
+            )
+        ]
+
+    def __str__(self):
+        return f'{self.homework} slot{self.slot}: {self.originalName}'
 
 
 
