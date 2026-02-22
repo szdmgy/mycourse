@@ -1,162 +1,81 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>数据导入</title>
-    {% load static %}
-    <link href="{% static 'css/studentCourseList.css' %}" rel="stylesheet"/>
+{% extends "base.html" %}
+{% block title %}数据导入 - 实验报告收集系统{% endblock %}
+{% block nav_admin %}active{% endblock %}
 
-    <style>
-        .container {
-      max-width: 1200px;
-      margin: 20px auto;
-      padding: 25px;
-      background: white;
-      border-radius: 10px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    }
-        body {
-            font-family: 'Microsoft YaHei', sans-serif;
-            margin: 20px;
-            color: #333;
-        }
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb" style="font-size:.85rem;">
+    <li class="breadcrumb-item"><a href="{% url 'manager' %}">管理员控制台</a></li>
+    <li class="breadcrumb-item active">数据导入</li>
+  </ol>
+</nav>
 
-        .container {
-            max-width: 800px;
-        }
+<h2 class="mb-3"><i class="bi bi-file-earmark-excel"></i> 导入 Excel 数据</h2>
 
-        h2 {
-            font-size: 24px;
-            margin-bottom: 20px;
-        }
+{% if error %}
+<div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> {{ error }}</div>
+{% endif %}
+{% if success %}
+<div class="alert alert-success"><i class="bi bi-check-circle"></i> {{ success }}</div>
+{% endif %}
 
-        .info-text {
-            font-size: 14px;
-            color: #666;
-            margin-bottom: 20px;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-label {
-            display: block;
-            margin-bottom: 10px;
-            font-size: 14px;
-        }
-
-        .upload-box {
-            position: relative;
-            display: inline-block;
-        }
-
-        .file-input {
-            opacity: 0;
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            cursor: pointer;
-        }
-
-        .file-display {
-            display: inline-block;
-            padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            background-color: #fff;
-            min-width: 200px;
-        }
-
-        .select-box {
-            padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            background-color: #fff;
-            min-width: 200px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .submit-btn {
-            background-color: #1a6b9b;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            padding: 8px 20px;
-            cursor: pointer;
-            font-size: 16px;
-            float: right;
-            margin-top: 20px;
-        }
-        .alert { padding: 10px; border-radius: 4px; }
-        .alert-success { background: #dff0d8; color: #3c763d; }
-        .alert-error { background: #f2dede; color: #a94442; }
-    </style>
-</head>
-<body>
-    <div class="container">
-       <!-- 欢迎语句和注销 -->
-        <div class="jumbotron ">
-            <h1>{{ name }}</h1>
-            <a href="{% url 'logout' %}" id="logout"> 注销</a>
-            <a href="{% url 'manager' %}" id="courseList-a"> 返回管理员界面 </a>
+<!-- 方式一：预览确认导入（推荐） -->
+<div class="card mb-3">
+  <div class="card-header">
+    <strong><i class="bi bi-eye"></i> 方式一：预览后确认导入</strong>
+    <span class="badge bg-success ms-2">推荐</span>
+  </div>
+  <div class="card-body">
+    <p style="font-size:.85rem; color:#666;">上传课程 Excel 文件后，系统会先解析预览，确认无误后再写入数据库。</p>
+    <form method="post" action="{% url 'preview_import' %}" enctype="multipart/form-data">
+      {% csrf_token %}
+      <input type="hidden" name="datatype" value="course">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-6">
+          <label class="form-label">选择课程 Excel 文件</label>
+          <input type="file" class="form-control" name="upload_file" accept=".xls,.xlsx,.xlsm" required>
         </div>
+        <div class="col-md-3">
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-eye"></i> 预览导入
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
 
-        <h2>导入EXCEL数据文件</h2>
-
-        <h3 style="margin-top:25px; font-size:18px;">方式一：预览后确认导入（推荐）</h3>
-        <form method="post" action="{% url 'preview_import' %}" enctype="multipart/form-data" style="margin-bottom:30px;">
-          {% csrf_token %}
-          <div style="margin-bottom:10px;">
-            <label>选择课程 Excel 文件：</label>
-            <input type="file" name="upload_file" accept=".xls,.xlsx,.xlsm" required>
-            <input type="hidden" name="datatype" value="course">
-          </div>
-          <button type="submit" class="submit-btn" style="float:none;">预览导入</button>
-        </form>
-
-        <hr style="border-top:1px dashed #ccc; margin:20px 0;">
-
-        <h3 style="font-size:18px;">方式二：直接导入（旧版）</h3>
-        <form id="excelUploadForm" method="post" enctype="multipart/form-data">
-          {% csrf_token %}
-          <div>
-            <label>导入文件：</label>
-            <input type="file" name="upload_file" required>
-            <select name="file_format">
-              <option value="course">课程</option>
-              <option value="task">作业</option>
-              <option value="student">学生</option>
-              <option value="teacher">老师</option>
-            </select>
-          </div>
-          <button type="submit">直接导入</button>
-        </form>
-        {% if error %}
-            <div class="alert alert-error">{{ error }}</div>
-        {% endif %}
-        {% if success %}
-            <div class="alert alert-success">{{ success }}</div>
-        {% endif %}
-    </div>
-</body>
-<script>
-    document.getElementById('excelUploadForm').addEventListener('submit', function(e) {
-  const fileInput = document.querySelector('input[type="file"]');
-  const file = fileInput.files[0];
-
-  // 检查文件类型
-  const allowedTypes = ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                        'application/vnd.ms-excel'];
-
-  if (file && !allowedTypes.includes(file.type)) {
-    e.preventDefault();
-    alert('请上传Excel文件 (.xlsx 或 .xls)');
-    return false;
-  }
-});
-</script>
-</html>
+<!-- 方式二：直接导入（旧版） -->
+<div class="card">
+  <div class="card-header">
+    <strong><i class="bi bi-lightning"></i> 方式二：直接导入</strong>
+    <span class="badge bg-secondary ms-2">旧版</span>
+  </div>
+  <div class="card-body">
+    <p style="font-size:.85rem; color:#666;">直接写入数据库，不经过预览确认，适合已确认无误的数据。</p>
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      <div class="row g-2 align-items-end">
+        <div class="col-md-5">
+          <label class="form-label">选择文件</label>
+          <input type="file" class="form-control" name="upload_file" accept=".xls,.xlsx,.xlsm" required>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">数据类型</label>
+          <select class="form-select" name="file_format">
+            <option value="course">课程</option>
+            <option value="student">学生</option>
+            <option value="teacher">教师</option>
+            <option value="task">作业</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <button type="submit" class="btn btn-outline-primary">
+            <i class="bi bi-upload"></i> 直接导入
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
