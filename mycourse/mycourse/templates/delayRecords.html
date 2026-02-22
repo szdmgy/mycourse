@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>异常作业记录</title>
+    {% load static %}
+    <link href="{% static 'css/teacherTasks.css' %}" rel="stylesheet"/>
+
+    <link rel="stylesheet" href="{% static 'css/bootstrap.css' %}">
+    <!-- jQuery文件。务必在bootstrap.min.js 之前引入 -->
+    <script src="{% static 'js/jquery.min.js' %}"></script>
+    <!-- bootstrap.bundle.min.js 用于弹窗、提示、下拉菜单，包含了 popper.min.js -->
+    <script src="{% static 'js/popper.min.js' %}"></script>
+    <!-- 最新的 Bootstrap 核心 JavaScript 文件 -->
+    <script src="{% static 'js/bootstrap.min.js' %}"></script>
+    {# 为全选、全不选、下载作业绑定事件  #}
+    <script type="text/javascript" src="{% static 'js/xlsx.full.min.js' %}"></script>
+
+</head>
+<body>
+<div class="container">
+    <!-- 欢迎语句和注销 -->
+    <div class="jumbotron ">
+        <h1>{{ name }}</h1>
+        <a href="{% url 'logout' %}" id="logout"> 注销</a>
+        <a href="{% url 'teacherCourseChange' course.courseTerm course.courseName course.classNumber %}" id="courseList-a"> 返回课程信息 </a>
+        <button onclick="exportDelayRecords()" id="courseList-a" class="btn " style="color: #337ab7;">导出异常记录</button>
+
+    </div>
+    <div class="modal-content changeCourseModal">
+        <h1>课程信息</h1>
+        <table class="table table-striped table-hover table-bordered">
+            <tr>
+                <td>学期</td>
+                <td>编号</td>
+                <td>名称</td>
+                <td>班号</td>
+                <td>老师</td>
+            </tr>
+            <tr>
+                <td>{{ course.courseTerm }}</td>
+                <td>{{ course.courseNumber }}</td>
+                <td>{{ course.courseName }}</td>
+                <td>{{ course.classNumber }}</td>
+                <td>{{ course.teachers }}</td>
+            </tr>
+        </table>
+
+        <h1>异常作业记录</h1>
+        <table  id="dataTable" class="table table-striped table-hover table-bordered">
+            <tbody>
+            <tr>
+                <td>#</td>
+                <td>作业标题</td>
+                <td>学生姓名</td>
+                <td>上传时间</td>
+                <td>截止日期</td>
+                <td>记录状态</td>
+            </tr>
+
+             {% for record in records %}
+                <tr>
+                    <td>{{ forloop.counter }}</td>
+                    <td>{{ record.title }}</td>
+                    <td>{{ record.name }}</td>
+                    <td>{{ record.time }}</td>
+                    <td>{{ record.deadline }}</td>
+                    <td>{{ record.status }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+
+        </table>
+
+    </div>
+</div>
+
+
+<script>
+function exportDelayRecords() {
+    if ({{ records.0 | length }} == 0)
+    {
+        alert('没有作业异常记录！');
+        return;
+    }
+
+
+    //alert('ok!')
+  // 1. 提取数据（示例：从表格读取，或直接使用数组）
+  const table = document.getElementById('dataTable');
+  const data = [];
+
+  // 提取表头
+  //const headers = Array.from(table.querySelectorAll('thead th'))
+  //                    .map(th => th.textContent);
+  //data.push(headers);
+
+  // 提取表体
+  const rows = table.querySelectorAll('tbody tr');
+  rows.forEach(row => {
+    const cells = Array.from(row.querySelectorAll('td'))
+                       .map(td => td.textContent);
+    data.push(cells);
+  });
+
+  // 2. 创建工作簿和工作表
+  const wb = XLSX.utils.book_new(); // 新建工作簿
+  const ws = XLSX.utils.aoa_to_sheet(data); // 将二维数组转为工作表（Array of Arrays）
+
+  // 3. 可选：设置工作表样式（如列宽、标题加粗）
+ // ws['A1'].s = { font: { bold: true }, fill: { fgColor: { rgb: "FFFF0000" } } }; // A1 单元格红色背景
+  //ws['A1'].v = "姓名"; // 若表头已通过 aoa_to_sheet 生成，此步骤可省略
+
+  // 调整列宽（自动适应内容长度）
+  //const colWidths = headers.map(header => ({
+  //  wch: header.length + 2 // 列宽 = 标题长度 + 2（经验值）
+ // }));
+  //ws['!cols'] = colWidths;
+
+  // 4. 将工作表添加到工作簿并命名
+  XLSX.utils.book_append_sheet(wb, ws, '作业异常记录'); // 工作表名称
+
+  // 5. 生成 Excel 文件并下载
+  XLSX.writeFile(wb, "{{ course }}" +'.xlsx'); // 直接触发下载（无需手动创建链接）
+}
+</script>
+</body>
+
+</html>

@@ -1,0 +1,26 @@
+.jumbotron a {
+    font-size: 25px;
+    margin-left: 70px;
+}
+
+.courseList-div p {
+    font-size: 30px;
+}
+
+.list-group{
+    width: max-content;
+}
+
+.modal-content{
+   text-align: center;
+}
+
+.form-group {
+    width: 50%;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+#downloadStudentListTemplate {
+    color: #204d74;
+}

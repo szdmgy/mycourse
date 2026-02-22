@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>作业信息</title>
+    {% load static %}
+    <link href="{% static 'css/teacherTasks.css' %}" rel="stylesheet"/>
+
+    <link rel="stylesheet" href="{% static 'css/bootstrap.css' %}">
+    <!-- jQuery文件。务必在bootstrap.min.js 之前引入 -->
+    <script src="{% static 'js/jquery.min.js' %}"></script>
+    <!-- bootstrap.bundle.min.js 用于弹窗、提示、下拉菜单，包含了 popper.min.js -->
+    <script src="{% static 'js/popper.min.js' %}"></script>
+    <!-- 最新的 Bootstrap 核心 JavaScript 文件 -->
+    <script src="{% static 'js/bootstrap.min.js' %}"></script>
+    {# 为全选、全不选、下载作业绑定事件  #}
+    <script type="text/javascript" src="{% static 'js/teacherTasks.js' %}"></script>
+</head>
+<body>
+<div class="container">
+    <!-- 欢迎语句和注销 -->
+    <div class="jumbotron ">
+        <h1>{{ name }}</h1>
+        <a href="{% url 'logout' %}" id="logout"> 注销</a>
+        <a href="{% url 'studentCourseList' %}" id="courseList-a"> 返回课程目录 </a>
+
+
+    </div>
+    <div class="modal-content changeCourseModal">
+        <h1>课程信息</h1>
+        <table class="table table-striped table-hover table-bordered">
+            <tr>
+                <td>学期</td>
+                <td>编号</td>
+                <td>名称</td>
+                <td>班号</td>
+                <td>老师</td>
+            </tr>
+            <tr>
+                <td>{{ course.courseTerm }}</td>
+                <td>{{ course.courseNumber }}</td>
+                <td>{{ course.courseName }}</td>
+                <td>{{ course.classNumber }}</td>
+                <td>{{ course.teachers }}</td>
+            </tr>
+        </table>
+
+        <h1>作业信息</h1>
+        <table class="table table-striped table-hover table-bordered">
+            <tr>
+                <td>#</td>
+                <td>作业名</td>
+                <td>上传文件类型</td>
+                <td>上传时间</td>
+                <td>截止日期</td>
+                <td>操作</td>
+            </tr>
+
+            {% for record in taskRecords %}
+                <tr {% if record.delay%}style="color: red"{% endif %}>
+                    <td>{{ forloop.counter }}</td>
+                    <td>{{ record.title }}</td>
+                    <td>{{ record.type }}</td>
+                    <td>{{ record.time }}</td>
+                    <td>{{ record.deadline }}</td>
+                    <td>
+                        <button class="btn" type="button"><a href="{% url 'taskSubmit' record.id record.title %}">提交作业</a></button>
+
+                    </td>
+                </tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+
+</body>
+
+</html>

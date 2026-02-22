@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>作业记录</title>
+    {% load static %}
+    <link href="{% static 'css/teacherTasks.css' %}" rel="stylesheet"/>
+
+    <link rel="stylesheet" href="{% static 'css/bootstrap.css' %}">
+    <!-- jQuery文件。务必在bootstrap.min.js 之前引入 -->
+    <script src="{% static 'js/jquery.min.js' %}"></script>
+    <!-- bootstrap.bundle.min.js 用于弹窗、提示、下拉菜单，包含了 popper.min.js -->
+    <script src="{% static 'js/popper.min.js' %}"></script>
+    <!-- 最新的 Bootstrap 核心 JavaScript 文件 -->
+    <script src="{% static 'js/bootstrap.min.js' %}"></script>
+    {# 为全选、全不选、下载作业绑定事件  #}
+    <script type="text/javascript" src="{% static 'js/teacherTasks.js' %}"></script>
+</head>
+<body>
+<div class="container">
+    <!-- 欢迎语句和注销 -->
+    <div class="jumbotron ">
+        <h1>{{ name }}</h1>
+        <a href="{% url 'logout' %}" id="logout"> 注销</a>
+        <a href="{% url 'teacherCourseChange' course.courseTerm course.courseName course.classNumber %}" id="courseList-a"> 返回课程信息 </a>
+
+    </div>
+    <div class="modal-content changeCourseModal">
+        <h1>作业信息</h1>
+        <table class="table table-striped table-hover table-bordered">
+            <tr>
+                <td>课程名</td>
+                <td>作业名</td>
+                <td>上传文件类型</td>
+                <td>是否显示</td>
+                <td>截止日期</td>
+            </tr>
+            <tr>
+                <td>{{ task.courseBelongTo }}</td>
+                <td>{{ task.title }}</td>
+                <td>{{ task.uploadFileType }}</td>
+                <td>{% if task.display %}是{% else %}否{% endif %}</td>
+                <td>{{ task.deadline }}</td>
+            </tr>
+
+        </table>
+
+        <h1>未提交学生名单</h1>
+        <table class="table table-striped table-hover table-bordered">
+            <tr>
+                <td>#</td>
+                <td>学号</td>
+                <td>姓名</td>
+                <td>性别</td>
+            </tr>
+
+            {% for student in notSubmitStudents %}
+                <tr>
+                    <td>{{ forloop.counter }}</td>
+                    <td>{{ student.0 }}</td>
+                    <td>{{ student.1 }}</td>
+                    <td>{% if student.2 == 'M' %}男{% endif %}{% if student.2 == 'F' %}女{% endif %}</td>
+                </tr>
+            {% endfor %}
+        </table>
+
+        <h1>已提交作业-学生名单</h1>
+        <table class="table table-striped table-hover table-bordered" id="submitStudentMessage-table">
+            <tr>
+                <td>#</td> <td>学号</td> <td>姓名</td> <td>性别</td><td>提交时间</td><td>是否延期</td> <td>选择作业&emsp;<a onclick="selectAll()">全选</a>&emsp;<a onclick="selectNone()">全不选</a></td>
+            </tr>
+
+            {% for student in submitRecords %}
+                <tr {% if student.4%}style="color: red"{% endif %}>
+                    <td>{{ forloop.counter }}</td>
+                    <td>{{ student.0 }}</td>
+                    <td>{{ student.1 }}</td>
+                    <td>{% if student.2 == 'M' %}男{% else %}女{% endif %}</td>
+                    <td>{{ student.3 }}</td>
+                    <td>{% if student.4%}是{% else %}否{% endif %}</td>
+                    <td><input type="checkbox" class="selectStudentHomework-checkbox selectStudentHomework-checkbox-{{ task.id }}" /></td>
+                </tr>
+            {% endfor %}
+        </table>
+        <button type="button" id="downloadHomework-button" onclick="downloadHomework('{{ task.title }}', '{% url 'download_homework_ByTeacher' %}', '{{ csrf_token  }}', '{{ task.id }}')">点击下载</button>
+
+    </div>
+</div>
+
+</body>
+
+</html>

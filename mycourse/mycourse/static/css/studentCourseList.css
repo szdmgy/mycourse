@@ -1,0 +1,12 @@
+.jumbotron a {
+    font-size: 35px;
+    margin-left: 150px;
+}
+
+.courseList-div p {
+    font-size: 30px;
+}
+
+.list-group{
+    width: max-content;
+}

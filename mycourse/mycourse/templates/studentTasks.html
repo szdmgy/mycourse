@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Student</title>
+    {% load static %}
+    <link href="{% static 'css/studentTasks.css' %}" rel="stylesheet"/>
+<link rel="stylesheet" href="{% static 'css/bootstrap.css' %}">
+<!-- jQuery文件。务必在bootstrap.min.js 之前引入 -->
+<script src="{% static 'js/jquery.min.js' %}"></script>
+<!-- bootstrap.bundle.min.js 用于弹窗、提示、下拉菜单，包含了 popper.min.js -->
+<script src="{% static 'js/popper.min.js' %}"></script>
+<!-- 最新的 Bootstrap 核心 JavaScript 文件 -->
+<script src="{% static 'js/bootstrap.min.js' %}"></script>
+</head>
+<body>
+<div class="container">
+<!-- 欢迎语句和注销 -->
+<div class="jumbotron">
+    <h1>{{ name }}</h1>
+    <a href="{% url 'studentCourseList' %}" id="courseList-a"> 返回课程目录</a>
+    <a href="{% url 'logout' %}" id="logout">注销</a>
+</div>
+<!-- 每个实验提交的div -->
+{% for taskMessage, filePath in task %}
+
+    <div class="lab-main">
+
+        <div class="text-main well">
+            <h1>{{ taskMessage.title }}</h1>
+            <span>{{ taskMessage.content | linebreaks }}</span>
+
+        <div class="upload-div">
+            <form id="file{{ taskMessage.id }}" >
+                {% csrf_token %}
+                上传文件： <input type="file" name="file" id="file" class="fileInput" accept="{{ taskMessage.uploadFileType }}"  />
+                <input type="button" value="上传" class="btn btn btn-outline-secondary btn-sm" onclick="Upload_file({{ taskMessage.id }})">
+            </form>
+        </div>
+        </div>
+        <div class="notice-div">
+            {% if filePath == 'False' %}
+                <div class="alert alert-danger" role="alert"><span class="alert-link">你还未提交作业!!!!!</span></div>
+            {% else %}
+                <div class="alert alert-success" role="alert"><a class="alert-link" href="{% url 'download_file' %}?url={{ filePath }}&task={{ taskMessage.id }}">{{ filePath }}</a></div>
+            {% endif %}
+        </div>
+
+    </div>
+{% endfor %}
+</div>
+</body>
+
+ <script type="text/javascript">
+     function Upload_file(id) {
+    console.log("文件开始上传！");
+    var fileForm = '#file' + id;
+    var formData = new FormData($(fileForm)[0]);
+    formData.append('taskId', id);
+    $.ajax({
+        url: '{% url 'upload_file' %}',
+        type: 'POST',
+        data: formData,
+        async:false,
+        cache: false,
+        contentType: false,
+        processData: false,
+        success: function (data) {
+            if (data === 'YES'){
+                alert("文件上传成功！");
+                window.location.reload();
+            } else {
+                alert('Upload Error')
+            }
+        },
+        error: function (data) {
+            alert('上传格式失败！请检查文件格式！');
+            console.log(data);
+        }
+    });
+ }
+ </script>
+
+{#todo:文件上传类型限制#}
+{#<script type="text/javascript">#}
+{#    $(function () {#}
+{#     #}
+{#    })#}
+{#</script>#}
+
+</html>

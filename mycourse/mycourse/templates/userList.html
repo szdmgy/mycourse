@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>用户信息</title>
+    {% load static %}
+    <link href="{% static 'css/teacherTasks.css' %}" rel="stylesheet"/>
+
+    <link rel="stylesheet" href="{% static 'css/bootstrap.css' %}">
+    <!-- jQuery文件。务必在bootstrap.min.js 之前引入 -->
+    <script src="{% static 'js/jquery.min.js' %}"></script>
+    <!-- bootstrap.bundle.min.js 用于弹窗、提示、下拉菜单，包含了 popper.min.js -->
+    <script src="{% static 'js/popper.min.js' %}"></script>
+    <!-- 最新的 Bootstrap 核心 JavaScript 文件 -->
+    <script src="{% static 'js/bootstrap.min.js' %}"></script>
+    {# 为全选、全不选、下载作业绑定事件  #}
+    <script type="text/javascript" src="{% static 'js/teacherTasks.js' %}"></script>
+</head>
+<body>
+<div class="container">
+    <!-- 欢迎语句和注销 -->
+    <div class="jumbotron ">
+        <h1>{{ name }}</h1>
+        <a href="{% url 'logout' %}" id="logout"> 注销</a>
+        <a href="{% url 'manager' %}" id="courseList-a"> 返回管理员界面 </a>
+
+    </div>
+    <div class="modal-content changeCourseModal">
+        <h1>老师信息</h1>
+        <table class="table table-striped table-hover table-bordered">
+            <tr>
+                <td>#</td>
+                <td>工号</td>
+                <td>姓名</td>
+                <td>性别</td>
+                <td>操作</td>
+            </tr>
+
+            {% for teacher in teacherList %}
+                <tr>
+                    <td>{{ forloop.counter }}</td>
+                    <td>{{ teacher.user }}</td>
+                    <td>{{ teacher.name }}</td>
+                    <td>{% if teacher.gender == 'M' %}男{% endif %}{% if teacher.gender == 'F' %}女{% endif %}</td>
+                    <td>
+                        <button class="btn" type="button"><a href="{% url 'removeUser' teacher.user %}"
+                                                             onclick="return confirm('是否要删除该老师？')">移除</a>
+                        </button>
+                        <button class="btn btn-primary" type="button" onclick="resetPassword({{ teacher.user }})">重置密码</button>
+                    </td>
+
+                </tr>
+            {% endfor %}
+        </table>
+
+
+        <h1>学生信息</h1>
+        <table class="table table-striped table-hover table-bordered">
+            <tr>
+                <td>#</td>
+                <td>学号</td>
+                <td>姓名</td>
+                <td>性别</td>
+                <td>操作</td>
+            </tr>
+
+            {% for student in studentList %}
+                <tr>
+                    <td>{{ forloop.counter }}</td>
+                    <td>{{ student.user }}</td>
+                    <td>{{ student.name }}</td>
+                    <td>{% if student.gender == 'M' %}男{% endif %}{% if student.gender == 'F' %}女{% endif %}</td>
+                    <td>
+                        <button class="btn" type="button"><a href="{% url 'removeUser' student.user %}"
+                                                             onclick="return confirm('是否要删除该学生？')">移除</a>
+                        </button>
+                        <button class="btn btn-primary" type="button" onclick="resetPassword({{ student.user }})">重置密码</button>
+                    </td>
+
+                </tr>
+            {% endfor %}
+        </table>
+
+
+
+    </div>
+</div>
+ <meta name="csrf-token" content="{{ csrf_token }}">
+<script type="text/javascript">
+    // 获取 CSRF Token（从 meta 标签中读取，使用可选链避免 null 错误）
+    const getCSRFToken = () => {
+        const metaTag = document.querySelector('meta[name="csrf-token"]');
+        return metaTag?.content || ''; // 若未找到则返回空字符串（理论上不会发生）
+    };
+
+    // 密码重置函数（使用驼峰命名规范）
+    const resetPassword = (user) => {
+        // 构造 AJAX 请求配置
+        const ajaxConfig = {
+            url: '{% url "resetPassword" %}', // Django 模板生成 URL
+            type: 'POST',
+            data: { 'user': user }, // 普通表单数据（非文件上传时无需额外处理）
+            headers: {
+                'X-CSRFToken': getCSRFToken() // 关键：通过请求头传递 CSRF Token
+            },
+            success: (response) => {
+                // 替换 alert 为更友好的提示（如 Toast），此处保留示例
+                alert(response);
+            },
+            error: (xhr, status, error) => {
+                // 输出详细错误信息（调试用），用户提示更友好
+                console.error(`密码重置失败 | 状态: ${status} | 错误: ${error}`);
+                alert('密码重置失败，请稍后重试！');
+            }
+        };
+        //console.log(user)
+        // 发送 AJAX 请求（默认异步，无需显式声明 async: true）
+        $.ajax(ajaxConfig);
+    };
+</script>
+</body>
+
+</html>

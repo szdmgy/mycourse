@@ -1,0 +1,71 @@
+.jumbotron #logout {
+    font-size: 25px;
+    margin-left: 15px;
+}
+
+#courseList-a {
+    font-size: 25px;
+    margin-left: 150px;
+}
+
+.taskList-div .well .taskMain-div {
+    float: left;
+    margin-left: 50px;
+    margin-top: 30px;
+}
+
+.taskList-div .well .taskMain-div b{
+    font-size: 35px;
+}
+
+.taskList-div .well .taskMain-div abbr{
+    font-size: 20px;
+}
+
+.taskList-div .well .taskMessage-div {
+    float: right;
+    margin-right: 50px;
+    font-size: 20px;
+    margin-top: 40px;
+}
+
+.taskList-div .well .taskMessage-div p button{
+    width: 150px;
+}
+
+.taskList-div .well {
+    height: 200px;
+}
+
+#submitStudentMessage-table tr td {
+    display:table-cell;
+    vertical-align:middle;
+    text-align: center;
+}
+
+#notSubmitStudentMessage-table tr td {
+    display:table-cell;
+    vertical-align:middle;
+    text-align: center;
+}
+
+.modal-content{
+   text-align: center;
+}
+
+.form-group {
+    width: 50%;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.addHomework-div {
+    margin-bottom: 20px;
+}
+.addHomework-div {
+    float: left;
+}
+
+.changeCourseData-div {
+    float: right;
+}

@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>teacher</title>
+
+    {% load static %}
+    <link href="{% static 'css/teacherTasks.css' %}" rel="stylesheet"/>
+
+<link rel="stylesheet" href="{% static 'css/bootstrap.css' %}">
+<!-- jQuery文件。务必在bootstrap.min.js 之前引入 -->
+<script src="{% static 'js/jquery.min.js' %}"></script>
+<!-- bootstrap.bundle.min.js 用于弹窗、提示、下拉菜单，包含了 popper.min.js -->
+<script src="{% static 'js/popper.min.js' %}"></script>
+<!-- 最新的 Bootstrap 核心 JavaScript 文件 -->
+<script src="{% static 'js/bootstrap.min.js' %}"></script>
+{# 为全选、全不选、下载作业绑定事件  #}
+    <script type="text/javascript" src="{% static 'js/teacherTasks.js' %}"></script>
+
+</head>
+<body>
+<div class="container" >
+    <!-- 欢迎语句和注销 -->
+    <div class="jumbotron " >
+    <h1>{{ name }}</h1>
+    <a href="{% url 'logout' %}" id="logout"> 注销</a>
+    <a href="{% url 'teacherCourseList' %}" id="courseList-a"> 返回课程目录</a>
+    <a href="{% url 'teacherCourseChange' course.courseTerm course.courseName course.classNumber %}" id="courseList-a"> 查看课程信息</a>
+    </div>
+
+    <!-- 作业列表div -->
+    <div class="taskList-div ">
+        {% for task, studentList in tasks %}
+            <div class="well">
+                <div class="taskMain-div">
+                    <p><b>{{ task.title }}</b></p>
+                    <p><abbr title="{{ task.content | linebreaks | striptags }}">{{ task.content | truncatechars_html:10}}...</abbr></p>
+                </div>
+                <div class="taskMessage-div">
+                    <p><button type="button" class="btn btn-primary" data-toggle="modal" data-target=".bs-example-modal-lg-task{{ forloop.counter }}-submit">已提交人数：{{ studentList.0 | length }}</button></p>
+                    <p><button type="button" class="btn btn-primary" data-toggle="modal" data-target=".bs-example-modal-lg-task{{ forloop.counter }}-notSubmit">未提交人数：{{ studentList.1 | length }}</button></p>
+                </div>
+
+            <div class="modal fade bs-example-modal-lg-task{{ forloop.counter }}-submit" tabindex="-1" role="dialog" aria-labelledby="myLargeModalLabel">
+              <div class="modal-dialog modal-lg" role="document">
+                <div class="modal-content">
+                    <h1>已提交作业-学生名单</h1>
+                    <table class="table table-striped table-hover table-bordered" id="submitStudentMessage-table">
+                        <tr>
+                            <td>#</td> <td>学号</td> <td>姓名</td> <td>性别</td> <td>选择作业&emsp;<a onclick="selectAll()">全选</a>&emsp;<a onclick="selectNone()">全不选</a></td>
+                        </tr>
+
+                        {% for student in studentList.0 %}
+                            <tr>
+                                <td>{{ forloop.counter }}</td>
+                                <td>{{ student.user }}</td>
+                                <td>{{ student.name }}</td>
+                                <td>{% if student.gender == 'M' %}男{% endif %}{% if student.gender == 'F' %}女{% endif %}</td>
+                                <td><input type="checkbox" class="selectStudentHomework-checkbox selectStudentHomework-checkbox-{{ task.id }}" /></td>
+                            </tr>
+                        {% endfor %}
+                    </table>
+                <button type="button" id="downloadHomework-button" onclick="downloadHomework('{{ task.title }}', '{% url 'download_homework_ByTeacher' %}', '{{ csrf_token  }}', '{{ task.id }}')"><span class="glyphicon glyphicon-save" aria-hidden="true"></span>点击下载</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="modal fade bs-example-modal-lg-task{{ forloop.counter }}-notSubmit" tabindex="-1" role="dialog" aria-labelledby="myLargeModalLabel">
+              <div class="modal-dialog modal-lg" role="document">
+                <div class="modal-content">
+                    <h1>未提交作业-学生名单：</h1>
+                    <table class="table table-striped table-hover table-bordered" id="notSubmitStudentMessage-table">
+                        <tr>
+                            <td>#</td> <td>学号</td> <td>姓名</td> <td>性别</td>
+                        </tr>
+                        {% for student in studentList.1 %}
+                            <tr>
+                                <td>{{ forloop.counter }}</td>
+                                <td>{{ student.user }}</td>
+                                <td>{{ student.name }}</td>
+                                <td>{% if student.gender == 'M' %}男{% endif %}{% if student.gender == 'F' %}女{% endif %}</td>
+                            </tr>
+                        {% endfor %}
+                    </table>
+                </div>
+              </div>
+            </div>
+
+            </div>
+        {% endfor %}
+    </div>
+
+            <div class="addHomework-div">
+                <button type="button" class="btn btn-primary" data-toggle="modal" data-target=".bs-example-modal-lg-task-addHomework"><span class="glyphicon glyphicon-plus" aria-hidden="true"></span>&emsp;添加作业</button>
+            </div>
+
+
+            <div class="changeCourseData-div">
+                <button type="button" class="btn btn-primary" data-toggle="modal" data-target=".bs-example-modal-lg-changeCourseData"><span class="glyphicon glyphicon-pencil" aria-hidden="true"></span>&emsp;修改课程和作业信息</button>
+            </div>
+
+            {#添加作业的弹出框#}
+            <div class="modal fade bs-example-modal-lg-task-addHomework" tabindex="-1" role="dialog" aria-labelledby="myLargeModalLabel">
+              <div class="modal-dialog modal-lg" role="document">
+                <div class="modal-content add">
+                    <h1>添加作业</h1>
+                    <form action="/addHomework/" method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="courseNumber" value="{{ course.courseNumber }}">
+                        <input type="hidden" name="courseName" value="{{ course.courseName }}">
+                        <div class="form-group">
+                            <label for="addHomeworkTitle">作业标题</label>
+                            <input class="form-control" type="text" name="title" id="addHomeworkTitle" />
+                        </div>
+                        <div class="form-group">
+                            <label for="addHomeworkContent">作业正文</label>
+                            <textarea class="form-control" name="content" rows="15" id="addHomeworkContent"></textarea>
+
+                        </div>
+                        <div class="form-group">
+                            <label for="addHomeworkUploadFileType">学生文件上传类型限定</label>
+                            <input class="form-control" type="text" name="uploadFileType" id="addHomeworkUploadFileType" value="*" />
+                            <span class="help-block">ps:输入'*'为所有格式，输入'.doc,.pdf'为同时支持.doc和.pdf后缀的文件</span>
+                            <span class="help-block">如果不填写此字段，默认接受所有格式</span>
+                        </div>
+                        <div class="form-group">
+                            <input type="submit" class="btn btn-primary" value="提交">
+                        </div>
+                    </form>
+
+                </div>
+              </div>
+            </div>
+
+            <div class="modal fade bs-example-modal-lg-changeCourseData" tabindex="-1" role="dialog" aria-labelledby="myLargeModalLabel">
+              <div class="modal-dialog modal-lg" role="document">
+                <div class="modal-content changeCourseModal">
+                    <h1>修改课程信息</h1>
+                    <span class="help-block">双击即可切换修改状态</span>
+
+                    <form action="/changeCourseMsgByTeacher/" method="post">
+                        {% csrf_token %}
+                        {#修改课程名、课程号#}
+                        <input type="hidden" name="courseNumber" value="{{ course.courseNumber }}">
+                        <input type="hidden" name="courseName" value="{{ course.courseName }}">
+                        <div class="form-group changeCourseName-div">
+                            <label for="changedCourseName">课程名</label>
+                            <input class="form-control changeCourseName-input" type="text" name="changedCourseName" id="changedCourseName" value="{{ course.courseName }}" disabled="disabled" />
+                        </div>
+
+                        <div class="form-group changeCourseName-div">
+                            <label for="changedCourseNumber">课程号</label>
+                            <input class="form-control changeCourseNumber-input" type="text" name="changedCourseNumber" id="changedCourseNumber" value="{{ course.courseNumber }}" disabled="disabled" />
+                        </div>
+
+                        <div class="form-group changeCourseName-div">
+                            <input id="changeCourseData-btn" type="submit" class="btn btn-primary changeCourseName-input" value="提交">
+                        </div>
+
+                    </form>
+
+                    <h1>删除作业</h1>
+                    <table class="table">
+                    <tr> <td>#</td> <td>作业名</td> <td>操作</td> </tr>
+
+                     {% for task, studentList in tasks %}
+                         <tr>
+                             <td>{{ forloop.counter }}</td>
+                             <td>{{ task.title }}</td>
+                             <td>
+                                 <button class="btn" type="button"><a href="/admin/app01/task/{{ task.id }}/change/">编辑</a></button>
+                                 <button class="btn deleteTask-btn" type="button" value="{{ task.id }}">删除</button>
+                             </td>
+                         </tr>
+                     {% endfor %}
+                    </table>
+
+                    <h1>修改学生信息</h1>
+                    <table class="table">
+                    <tr> <td>#</td> <td>学号</td> <td>姓名</td> <td>性别</td> <td>操作</td></tr>
+
+                     {% for student in selectCourseStudentList %}
+                         <tr>
+                             <td>{{ forloop.counter }}</td>
+                             <td>{{ student.user }}</td>
+                             <td>{{ student.name }}</td>
+                             <td>{% if student.gender == 'M' %}男{% endif %}{% if student.gender == 'F' %}女{% endif %}</td>
+                             <td><button class="btn removeStudentByTeacher-btn" type="button" value="{{ student.user }}">移除</button></td>
+                         </tr>
+                     {% endfor %}
+                    </table>
+
+                    <h1>添加课程学生</h1>
+                    <form action="/addStudentToCourseByTeacher/" method="post">
+                        {% csrf_token %}
+                        {#课程名、课程号#}
+                        <input type="hidden" name="courseNumber" value="{{ course.courseNumber }}">
+                        <input type="hidden" name="courseName" value="{{ course.courseName }}">
+                        <div class="form-group newStudentName-div">
+                            <label for="newStudentName">学生姓名</label>
+                            <input class="form-control newStudentName-input" type="text" name="newStudentName" id="newStudentName"/>
+                        </div>
+
+                        <div class="form-group newStudentNumber-div">
+                            <label for="newStudentNumber">学号</label>
+                            <input class="form-control newStudentNumber-input" type="text" name="newStudentNumber" id="newStudentNumber"/>
+                        </div>
+
+                        <div class="form-group newStudentGender-div">
+                            <label>性别</label>
+                            <p>
+                                男<input class="newStudentGender-input" type="radio" name="newStudentGender" value="M"/>
+                                女<input class="newStudentGender-input" type="radio" name="newStudentGender" value="F" checked/>
+                            </p>
+                        </div>
+
+                        <div class="form-group newStudent-div">
+                            <input id="addNewStudent-btn" type="submit" class="btn btn-primary newStudent-input" value="提交">
+                        </div>
+
+                    </form>
+
+                    <h1>慎重！删除该课程?</h1>
+                    <button id="deleteCourseBtn" class="btn" type="submit" coursename="{{ course.courseName }}" coursenumber="{{ course.courseNumber }}">删除</button>
+                </div>
+              </div>
+            </div>
+
+
+
+
+</div>
+</body>
+</html>

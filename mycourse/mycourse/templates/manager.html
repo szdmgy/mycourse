@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>manager</title>
+    {% load static %}
+    <link href="{% static 'css/manager.css' %}" rel="stylesheet"/>
+<link rel="stylesheet" href="{% static 'css/bootstrap.css' %}">
+<!-- jQuery文件。务必在bootstrap.min.js 之前引入 -->
+<script src="{% static 'js/jquery.min.js' %}"></script>
+<!-- bootstrap.bundle.min.js 用于弹窗、提示、下拉菜单，包含了 popper.min.js -->
+<script src="{% static 'js/popper.min.js' %}"></script>
+<!-- 最新的 Bootstrap 核心 JavaScript 文件 -->
+<script src="{% static 'js/bootstrap.min.js' %}"></script>
+<script src="{% static 'js/manager.js' %}"></script>
+    <style>
+        /* 仅 #unique-div 内的 <a> 标签颜色改为白色 */
+#unique-div a {
+  color: white;
+}
+#import-data a {
+  color: white;
+}
+    </style>
+</head>
+<body>
+<div class="container">
+    <!-- 欢迎语句和注销 -->
+    <div class="jumbotron">
+    <h1>{{ name }}</h1>
+    <a href="{% url 'logout' %}" id="logout">注销</a>
+    <a href="{% url 'teacherCourseList' %}" id="logout">返回老师界面</a>
+    </div>
+
+    <div id="import-data" class="control-member-div well">
+        <button type="button" class="btn btn-primary" data-toggle="modal" data-target=".bs-example-modal-lg-addMember">添加老师/学生</button>
+        <button type="button" class="btn btn-primary" ><a  href="{% url 'user_list' %}">查看老师/学生</a></button>
+
+    </div>
+
+    <div id="unique-div" class="control-member-div well">
+        <button type="button" class="btn btn-primary" ><a  href="{% url 'import_data' %}">导入数据</a></button>
+        <button type="button" class="btn btn-primary" ><a  href="{% url 'file_upload' 'course' %} ">导入课程数据</a></button>
+        <button type="button" class="btn btn-primary" ><a  href="{% url 'file_upload' 'task' %}">导入作业数据</a></button>
+        <button type="button" class="btn btn-primary" ><a  href="{% url 'file_upload' 'teacher' %}">导入老师数据</a></button>
+         <button type="button" class="btn btn-primary" ><a  href="{% url 'file_upload' 'student' %}">导入学生数据</a></button>
+    </div>
+
+     {# 添加老师或学生#}
+            <div class="modal fade bs-example-modal-lg-addMember" tabindex="-1" role="dialog" aria-labelledby="myLargeModalLabel">
+              <div class="modal-dialog modal-lg" role="document">
+                <div class="modal-content">
+                    <h1>添加成员</h1>
+                    <form action="/addMemberByManager/" method="post">
+                        {% csrf_token %}
+                        <div class="form-group">
+                            <label>请选择成员类型</label>
+                            <p>
+                            <label for="choseTeacherBox">老师</label>
+                            <input type="radio" name="memberType" value="teacher" id="choseTeacherBox" />
+                            <label for="choseStudentBox">学生</label>
+                            <input type="radio" name="memberType" value="student" id="choseStudentBox" checked/>
+                            </p>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="memberName">姓名</label>
+                            <input class="form-control" type="text" name="memberName" id="addMemberName" />
+                        </div>
+                        <div class="form-group">
+                            <label for="memberNumber">学号/工号</label>
+                            <input class="form-control" type="text" name="memberNumber" id="memberNumber" />
+
+                        </div>
+                        <div class="form-group">
+                            <label>请选择成员性别</label>
+                            <p>
+                                <label for="choseMaleBox">男</label>
+                                <input type="radio" name="memberGender" value="male" id="choseMaleBox" />
+                                <label for="choseFemaleBox">女</label>
+                                <input type="radio" name="memberGender" value="female" id="choseFemaleBox" checked/>
+                            </p>
+                        </div>
+                        <div class="form-group">
+                            <input type="submit" class="btn btn-primary" value="提交">
+                        </div>
+                    </form>
+                </div>
+              </div>
+            </div>
+
+
+</div>
+
+
+
+
+</body>
+</html>

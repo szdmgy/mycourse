@@ -1,0 +1,15 @@
+.jumbotron a {
+    font-size: 25px;
+    margin-left: 70px;
+}
+
+.modal-content{
+   text-align: center;
+}
+
+.form-group {
+    width: 50%;
+    margin-left: auto;
+    margin-right: auto;
+}
+

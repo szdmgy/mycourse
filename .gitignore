@@ -1,0 +1,29 @@
+# Python
+*.pyc
+__pycache__/
+*.pyo
+
+# Virtual environment
+venv/
+
+# Database
+db.sqlite3
+db.sqlite3.bak
+
+# IDE
+.idea/
+
+# Uploaded files
+file/
+
+# Environment variables
+.env
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Byte-compiled / optimized
+*.py[cod]
+*$py.class

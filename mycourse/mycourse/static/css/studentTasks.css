@@ -1,0 +1,20 @@
+.jumbotron #courseList-a {
+    font-size: 25px;
+    margin-left: 5px;
+}
+
+#logout {
+    font-size: 25px;
+    margin-left: 170px;
+}
+
+
+.alert {
+    top: 10px;
+    width: 600px;
+    padding-top: 10px;
+}
+
+#file {
+    float: left;
+}

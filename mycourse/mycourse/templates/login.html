@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户登录</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: '微软雅黑', sans-serif;
+        }
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #f0f2f5; /* 浅灰色背景 */
+        }
+
+        .login-container {
+            width: 90%;
+            max-width: 410px;
+            padding: 2rem;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1); /* 轻微阴影 */
+        }
+
+        .login-title {
+            text-align: center;
+            color: #1a73e8; /* 蓝色标题 */
+            margin-bottom: 1.5rem;
+            font-size: 1.5rem;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #5f6368;
+            font-size: 0.9rem;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.8rem;
+            border: 1px solid #dadce0;
+            border-radius: 5px;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #1a73e8; /* 聚焦时蓝色边框 */
+        }
+
+        .remember-me {
+            display: flex;
+            align-items: center;
+            margin: 1rem 0;
+            color: #5f6368;
+            font-size: 0.9rem;
+        }
+
+        .remember-me input {
+            margin-right: 0.5rem;
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 0.8rem;
+            background: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .submit-btn:hover {
+            background: #1557b0; /* 悬停时深蓝色 */
+        }
+
+        .error-tip {
+            color: #d93025;
+            font-size: 0.875rem;
+            margin-top: 0.25rem;
+            display: none; /* 默认隐藏错误提示 */
+        }
+    </style>
+    
+</head>
+<body>
+    <div class="login-container">
+        <h1 class="login-title">生物医学工程教学实验中心中作业提交系统</h1>
+        <form action="/user/" method="post" id="loginForm">
+             {% csrf_token %}
+            <!-- 用户名输入 -->
+            <div class="form-group">
+                <label for="username" class="form-label">用户名</label>
+                <input type="text" name='uname' id="username" class="form-input" placeholder="请输入用户名">
+                <div class="error-tip" id="usernameError">用户名不能为空</div>
+            </div>
+
+            <!-- 密码输入 -->
+            <div class="form-group">
+                <label for="password" class="form-label">密码</label>
+                <input type="password" name='pwd' id="password" class="form-input" placeholder="请输入密码">
+                <div class="error-tip" id="passwordError">密码不能为空</div>
+            </div>
+
+            <!-- 提交按钮 -->
+            <button type="submit" class="submit-btn">登录</button>
+
+            <div class="alert alert-info" role="alert">
+              学生默认账户为学号，默认密码为szu + 学号后六位。
+                <p></p>
+              首次登录系统强制修改，忘记密码联系老师进行重置。
+            </div>
+        </form>
+    </div>
+
+
+</body>
+</html>
