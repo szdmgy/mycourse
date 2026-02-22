@@ -382,37 +382,8 @@ def download_homework_file(request, file_id):
 
 @login_required
 def teacherGetTaskByCoursename(request, courseTerm, courseName, classNumber):
-    course = models.Course.objects.filter(
-        courseTerm=courseTerm, courseName=courseName, classNumber=classNumber
-    ).first()
-    selectCourseStudentList = course.members.filter(type='S')
-    tasks = list(models.Task.objects.filter(courseBelongTo=course))
-
-    studentList = []
-    for task in tasks:
-        submitStudentDict = {}
-        notSubmitStudentList = []
-
-        homeworkRecords = models.Homework.objects.filter(task=task)
-        for record in homeworkRecords:
-            if record.user.name not in submitStudentDict and record.user in selectCourseStudentList:
-                submitStudentDict[record.user.name] = record.user
-
-        for student in selectCourseStudentList:
-            if student.name not in submitStudentDict:
-                notSubmitStudentList.append(student)
-
-        submitStudentList = list(submitStudentDict.values())
-        studentList.append([submitStudentList, notSubmitStudentList])
-
-    context = {
-        'tasks': list(zip(tasks, studentList)),
-        'courseMsg': [courseTerm, courseName, classNumber],
-        'selectCourseStudentList': selectCourseStudentList,
-        'name': get_display_name(request.user),
-        'course': course,
-    }
-    return render(request, 'teacherTasks.html', context)
+    return redirect('teacherCourseChange', courseTerm=courseTerm,
+                    courseName=courseName, classNumber=classNumber)
 
 
 @login_required
@@ -785,8 +756,16 @@ class TaskEditForm(forms.ModelForm):
                   'slot1Name', 'slot1Type', 'slot2Name', 'slot2Type',
                   'slot3Name', 'slot3Type']
         widgets = {
-            'deadline': forms.DateInput(attrs={'type': 'date'}),
-            'maxFiles': forms.Select(choices=[(1, '1'), (2, '2'), (3, '3')]),
+            'display': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'deadline': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
+            'maxFiles': forms.Select(choices=[(1, '1'), (2, '2'), (3, '3')],
+                                     attrs={'class': 'form-select', 'id': 'id_maxFiles'}),
+            'slot1Name': forms.TextInput(attrs={'class': 'form-control'}),
+            'slot1Type': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '* 为不限'}),
+            'slot2Name': forms.TextInput(attrs={'class': 'form-control'}),
+            'slot2Type': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '* 为不限'}),
+            'slot3Name': forms.TextInput(attrs={'class': 'form-control'}),
+            'slot3Type': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '* 为不限'}),
         }
         labels = {
             'display': '是否显示',
@@ -1112,31 +1091,47 @@ def teacher_course_change(request, courseTerm, courseName, classNumber):
     course = models.Course.objects.filter(
         courseTerm=courseTerm, courseName=courseName, classNumber=classNumber
     ).first()
-    selectCourseStudentList = course.members.filter(type='S')
+    if not course:
+        return HttpResponse("课程不存在")
+
+    students = course.members.filter(type='S')
     tasks = list(models.Task.objects.filter(courseBelongTo=course))
 
-    studentList = []
+    task_data = []
     for task in tasks:
-        submitStudentDict = {}
-        notSubmitStudentList = []
-
-        homeworkRecords = models.Homework.objects.filter(task=task)
-        for record in homeworkRecords:
-            if record.user.name not in submitStudentDict and record.user in selectCourseStudentList:
-                submitStudentDict[record.user.name] = record.user
-        for student in selectCourseStudentList:
-            if student.name not in submitStudentDict:
-                notSubmitStudentList.append(student)
-        submitStudentList = list(submitStudentDict.values())
-        studentList.append([submitStudentList, notSubmitStudentList])
+        submitted, not_submitted, seen = [], [], set()
+        for hw in models.Homework.objects.filter(task=task):
+            if hw.user.pk in seen or hw.user not in students:
+                continue
+            seen.add(hw.user.pk)
+            file_count = HomeworkFile.objects.filter(homework=hw).count()
+            submitted.append({
+                'number': hw.user.user.username,
+                'name': hw.user.name,
+                'gender': hw.user.gender,
+                'time': hw.time,
+                'delay': hw.time.date() > task.deadline,
+                'file_count': file_count,
+            })
+        for student in students:
+            if student.pk not in seen:
+                not_submitted.append(student)
+        task_data.append({
+            'task': task,
+            'submitted': submitted,
+            'not_submitted': not_submitted,
+            'submitted_count': len(submitted),
+            'not_submitted_count': len(not_submitted),
+        })
 
     context = {
-        'tasks': list(zip(tasks, studentList)),
-        'selectCourseStudentList': selectCourseStudentList,
+        'task_data': task_data,
+        'student_list': students,
+        'student_count': students.count(),
         'name': get_display_name(request.user),
         'course': course,
     }
-    return render(request, 'teacherCourseChange.html', context)
+    return render(request, 'teacherCourseDetail.html', context)
 
 
 @login_required

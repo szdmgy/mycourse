@@ -1,0 +1,622 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ course.courseName }} - 课程管理{% endblock %}
+{% block nav_courses %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .nav-tabs .nav-link { font-size: .95rem; }
+  .accordion-button { font-size: .9rem; padding: .6rem 1rem; }
+  .accordion-body { font-size: .9rem; }
+  .slot-row { transition: all .2s; }
+</style>
+{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb" style="font-size:.85rem;">
+    <li class="breadcrumb-item"><a href="{% url 'teacherCourseList' %}">课程列表</a></li>
+    <li class="breadcrumb-item active">{{ course.courseName }}（{{ course.classNumber }}班）</li>
+  </ol>
+</nav>
+
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <div class="row" style="font-size:.85rem; color:#555;">
+      <div class="col-md-3"><strong>学期：</strong>{{ course.courseTerm }}</div>
+      <div class="col-md-2"><strong>编号：</strong>{{ course.courseNumber }}</div>
+      <div class="col-md-2"><strong>班号：</strong>{{ course.classNumber }}</div>
+      <div class="col-md-2"><strong>教师：</strong>{{ course.teachers }}</div>
+      <div class="col-md-3"><strong>学生：</strong>{{ student_count }} 人</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ Tab 导航 ════════ -->
+<ul class="nav nav-tabs mb-3" id="courseTab" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-tasks" type="button">
+      <i class="bi bi-list-task"></i> 作业管理
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-stats" type="button">
+      <i class="bi bi-bar-chart"></i> 提交统计
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-students" type="button">
+      <i class="bi bi-people"></i> 学生管理
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-settings" type="button">
+      <i class="bi bi-gear"></i> 课程设置
+    </button>
+  </li>
+</ul>
+
+<!-- ════════ Tab 内容 ════════ -->
+<div class="tab-content" id="courseTabContent">
+
+<!-- ═══ Tab 1：作业管理 ═══ -->
+<div class="tab-pane fade show active" id="tab-tasks" role="tabpanel">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="mb-0">作业列表</h3>
+    <div>
+      <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addTaskModal">
+        <i class="bi bi-plus-lg"></i> 添加实验
+      </button>
+      <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#reuseModal" onclick="loadHistoryTasks()">
+        <i class="bi bi-arrow-repeat"></i> 从历史复用
+      </button>
+    </div>
+  </div>
+
+  {% if task_data %}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle">
+      <thead class="table-light">
+        <tr>
+          <th style="width:40px;">#</th>
+          <th>标题</th>
+          <th>附件数</th>
+          <th>显示</th>
+          <th>截止日期</th>
+          <th>已交/总人数</th>
+          <th style="width:250px;">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for td in task_data %}
+        <tr>
+          <td>{{ forloop.counter }}</td>
+          <td><strong>{{ td.task.title }}</strong></td>
+          <td>{{ td.task.maxFiles }}</td>
+          <td>
+            {% if td.task.display %}
+              <span class="badge bg-success">显示</span>
+            {% else %}
+              <span class="badge bg-secondary">隐藏</span>
+            {% endif %}
+          </td>
+          <td>{{ td.task.deadline|date:"Y-m-d" }}</td>
+          <td>
+            <span class="badge bg-info">{{ td.submitted_count }}/{{ td.submitted_count|add:td.not_submitted_count }}</span>
+          </td>
+          <td>
+            <a href="{% url 'taskChange' td.task.id td.task.title %}" class="btn btn-outline-primary btn-sm" title="编辑">
+              <i class="bi bi-pencil"></i>
+            </a>
+            <a href="{% url 'homeworkRecords' td.task.id td.task.title %}" class="btn btn-outline-info btn-sm" title="作业记录">
+              <i class="bi bi-clipboard-data"></i>
+            </a>
+            <button class="btn btn-outline-danger btn-sm" title="删除"
+                    onclick="deleteTask({{ td.task.id }}, '{{ td.task.title|escapejs }}')">
+              <i class="bi bi-trash"></i>
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card p-4 text-center">
+    <p style="color:#666;"><i class="bi bi-info-circle"></i> 本课程暂无作业，点击"添加实验"或"从历史复用"开始</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ═══ Tab 2：提交统计 ═══ -->
+<div class="tab-pane fade" id="tab-stats" role="tabpanel">
+  <h3 class="mb-3">提交统计</h3>
+
+  {% if task_data %}
+  <div class="accordion" id="statsAccordion">
+    {% for td in task_data %}
+    <div class="accordion-item">
+      <h2 class="accordion-header">
+        <button class="accordion-button collapsed" type="button"
+                data-bs-toggle="collapse" data-bs-target="#stats-{{ td.task.id }}">
+          <span class="me-3"><strong>{{ td.task.title }}</strong></span>
+          <span class="badge bg-success me-1">已交 {{ td.submitted_count }}</span>
+          <span class="badge bg-danger">未交 {{ td.not_submitted_count }}</span>
+        </button>
+      </h2>
+      <div id="stats-{{ td.task.id }}" class="accordion-collapse collapse" data-bs-parent="#statsAccordion">
+        <div class="accordion-body">
+
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 class="mb-0">已提交（{{ td.submitted_count }}人）</h5>
+            <div>
+              <button class="btn btn-sm btn-outline-secondary" onclick="selAll({{ td.task.id }})">全选</button>
+              <button class="btn btn-sm btn-outline-secondary" onclick="selNone({{ td.task.id }})">全不选</button>
+            </div>
+          </div>
+          {% if td.submitted %}
+          <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+              <thead class="table-light">
+                <tr><th>#</th><th>学号</th><th>姓名</th><th>性别</th><th>提交时间</th><th>附件</th><th>状态</th><th>选择</th></tr>
+              </thead>
+              <tbody>
+                {% for rec in td.submitted %}
+                <tr {% if rec.delay %}class="table-warning"{% endif %}>
+                  <td>{{ forloop.counter }}</td>
+                  <td>{{ rec.number }}</td>
+                  <td>{{ rec.name }}</td>
+                  <td>{% if rec.gender == 'M' %}男{% else %}女{% endif %}</td>
+                  <td>{{ rec.time|date:"Y-m-d H:i" }}</td>
+                  <td>{{ rec.file_count }}/{{ td.task.maxFiles }}</td>
+                  <td>{% if rec.delay %}<span class="badge badge-delay">延期</span>{% else %}<span class="badge badge-submitted">正常</span>{% endif %}</td>
+                  <td><input type="checkbox" class="form-check-input chk-{{ td.task.id }}" data-number="{{ rec.number }}"></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <button class="btn btn-primary btn-sm"
+                  onclick="dlHomework('{{ td.task.title|escapejs }}', {{ td.task.id }})">
+            <i class="bi bi-download"></i> 下载选中作业
+          </button>
+          {% else %}
+          <p class="text-muted">暂无人提交</p>
+          {% endif %}
+
+          <h5 class="mt-3">未提交（{{ td.not_submitted_count }}人）</h5>
+          {% if td.not_submitted %}
+          <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+              <thead class="table-light">
+                <tr><th>#</th><th>学号</th><th>姓名</th><th>性别</th></tr>
+              </thead>
+              <tbody>
+                {% for stu in td.not_submitted %}
+                <tr>
+                  <td>{{ forloop.counter }}</td>
+                  <td>{{ stu.user.username }}</td>
+                  <td>{{ stu.name }}</td>
+                  <td>{% if stu.gender == 'M' %}男{% else %}女{% endif %}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <p class="text-muted">全部已交</p>
+          {% endif %}
+
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card p-4 text-center">
+    <p style="color:#666;"><i class="bi bi-info-circle"></i> 本课程暂无作业</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ═══ Tab 3：学生管理 ═══ -->
+<div class="tab-pane fade" id="tab-students" role="tabpanel">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="mb-0">学生名单（{{ student_count }}人）</h3>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="collapse" data-bs-target="#addStudentForm">
+      <i class="bi bi-person-plus"></i> 添加学生
+    </button>
+  </div>
+
+  <div class="collapse mb-3" id="addStudentForm">
+    <div class="card card-body">
+      <form action="{% url 'addStudentToCourseByTeacher' %}" method="post">
+        {% csrf_token %}
+        <input type="hidden" name="courseID" value="{{ course.id }}">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-3">
+            <label class="form-label">学号 <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" name="newStudentNumber" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">姓名 <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" name="newStudentName" required>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">性别</label>
+            <select class="form-select" name="newStudentGender">
+              <option value="M">男</option>
+              <option value="F" selected>女</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-plus-lg"></i> 添加</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {% if student_list %}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle">
+      <thead class="table-light">
+        <tr>
+          <th style="width:40px;">#</th>
+          <th>学号</th>
+          <th>姓名</th>
+          <th>性别</th>
+          <th style="width:220px;">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for stu in student_list %}
+        <tr>
+          <td>{{ forloop.counter }}</td>
+          <td>{{ stu.user.username }}</td>
+          <td>{{ stu.name }}</td>
+          <td>{% if stu.gender == 'M' %}男{% else %}女{% endif %}</td>
+          <td>
+            <button class="btn btn-outline-warning btn-sm"
+                    onclick="resetPwd('{{ stu.user.username }}', '{{ stu.name|escapejs }}')">
+              <i class="bi bi-key"></i> 重置密码
+            </button>
+            <a href="{% url 'removeStudent' course.id stu.user.username %}"
+               class="btn btn-outline-danger btn-sm"
+               onclick="return confirm('确定要移除学生 {{ stu.name }}（{{ stu.user.username }}）吗？')">
+              <i class="bi bi-person-x"></i> 移除
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card p-4 text-center">
+    <p style="color:#666;"><i class="bi bi-info-circle"></i> 本课程暂无学生</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ═══ Tab 4：课程设置 ═══ -->
+<div class="tab-pane fade" id="tab-settings" role="tabpanel">
+  <h3 class="mb-3">课程设置</h3>
+
+  <div class="card mb-3">
+    <div class="card-header"><strong>课程基本信息</strong></div>
+    <div class="card-body">
+      <form action="{% url 'changeCourseMsgByTeacher' %}" method="post">
+        {% csrf_token %}
+        <input type="hidden" name="courseNumber" value="{{ course.courseNumber }}">
+        <input type="hidden" name="courseName" value="{{ course.courseName }}">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">学期</label>
+            <input type="text" class="form-control" value="{{ course.courseTerm }}" disabled>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">课程名</label>
+            <input type="text" class="form-control" name="changedCourseName" value="{{ course.courseName }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">课程编号</label>
+            <input type="text" class="form-control" name="changedCourseNumber" value="{{ course.courseNumber }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">班号</label>
+            <input type="text" class="form-control" value="{{ course.classNumber }}" disabled>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">教师</label>
+            <input type="text" class="form-control" value="{{ course.teachers }}" disabled>
+          </div>
+          <div class="col-md-4 d-flex align-items-end">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存修改</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header"><strong>异常记录</strong></div>
+    <div class="card-body">
+      <a href="{% url 'delayRecords' course.id %}" class="btn btn-outline-info">
+        <i class="bi bi-exclamation-triangle"></i> 查看异常作业记录（延期/未交）
+      </a>
+    </div>
+  </div>
+
+  <div class="card border-danger">
+    <div class="card-header bg-danger text-white"><strong>危险操作</strong></div>
+    <div class="card-body">
+      <p>删除课程将同时删除该课程的所有作业、提交记录和文件。此操作<strong>不可恢复</strong>。</p>
+      <button class="btn btn-danger"
+              onclick="delCourse('{{ course.courseNumber|escapejs }}', '{{ course.courseName|escapejs }}')">
+        <i class="bi bi-trash"></i> 删除课程
+      </button>
+    </div>
+  </div>
+</div>
+
+</div><!-- /tab-content -->
+
+<!-- ════════ 模态框：添加实验 ════════ -->
+<div class="modal fade" id="addTaskModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-plus-lg"></i> 添加实验</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form action="{% url 'addHomework' %}" method="post">
+        {% csrf_token %}
+        <div class="modal-body">
+          <input type="hidden" name="courseID" value="{{ course.id }}">
+          <div class="mb-3">
+            <label class="form-label">作业标题 <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" name="title" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">作业正文 <span class="text-danger">*</span></label>
+            <textarea class="form-control" name="content" rows="5" required></textarea>
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label">截止日期</label>
+              <input type="date" class="form-control" name="deadline" id="addTaskDeadline">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">最大附件数</label>
+              <select class="form-select" name="maxFiles" id="addTaskMaxFiles" onchange="toggleSlots()">
+                <option value="1" selected>1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+              </select>
+            </div>
+          </div>
+          <hr>
+          <h6>附件配置</h6>
+          <div class="row g-3" id="slot1Row">
+            <div class="col-md-6">
+              <label class="form-label">附件1名称 <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" name="slot1Name" value="实验报告" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">附件1类型</label>
+              <input type="text" class="form-control" name="slot1Type" value="*" placeholder="* 为不限">
+            </div>
+          </div>
+          <div class="row g-3 mt-1 slot-row" id="slot2Row" style="display:none;">
+            <div class="col-md-6">
+              <label class="form-label">附件2名称</label>
+              <input type="text" class="form-control" name="slot2Name">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">附件2类型</label>
+              <input type="text" class="form-control" name="slot2Type" value="*" placeholder="* 为不限">
+            </div>
+          </div>
+          <div class="row g-3 mt-1 slot-row" id="slot3Row" style="display:none;">
+            <div class="col-md-6">
+              <label class="form-label">附件3名称</label>
+              <input type="text" class="form-control" name="slot3Name">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">附件3类型</label>
+              <input type="text" class="form-control" name="slot3Type" value="*" placeholder="* 为不限">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 添加</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ 模态框：历史复用 ════════ -->
+<div class="modal fade" id="reuseModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-arrow-repeat"></i> 从历史复用实验</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <input type="text" class="form-control" id="reuseFilter" placeholder="搜索课程名或学期..." oninput="filterHistory()">
+        </div>
+        <div id="historyList">
+          <div class="text-center py-3">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2">加载中...</p>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span id="reuseCount" class="me-auto text-muted">已选 0 项</span>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="button" class="btn btn-primary" onclick="submitReuse()">
+          <i class="bi bi-check-lg"></i> 导入到当前课程
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var CSRF = '{{ csrf_token }}';
+var COURSE_ID = {{ course.id }};
+
+/* ── 添加实验：默认截止日期 ── */
+(function(){
+  var d = new Date(); d.setDate(d.getDate() + 130);
+  var el = document.getElementById('addTaskDeadline');
+  if (el && !el.value) el.value = d.toISOString().split('T')[0];
+})();
+
+/* ── 添加实验：切换附件字段 ── */
+function toggleSlots(){
+  var n = parseInt(document.getElementById('addTaskMaxFiles').value);
+  document.getElementById('slot2Row').style.display = n >= 2 ? '' : 'none';
+  document.getElementById('slot3Row').style.display = n >= 3 ? '' : 'none';
+}
+
+/* ── 删除作业 ── */
+function deleteTask(id, title){
+  if(confirm('确定要删除作业「' + title + '」吗？\n该操作会丢失所有提交记录和文件！'))
+    location.href = '/deleteTaskByTeacher/' + id + '/';
+}
+
+/* ── 删除课程 ── */
+function delCourse(num, name){
+  if(confirm('确定要删除课程「' + name + '」吗？\n此操作不可恢复！'))
+    location.href = '/deleteCourse/' + encodeURIComponent(num) + '/' + encodeURIComponent(name) + '/';
+}
+
+/* ── 重置密码 ── */
+function resetPwd(username, displayName){
+  if(!confirm('确定要重置 ' + displayName + '（' + username + '）的密码吗？')) return;
+  $.ajax({
+    url: '{% url "resetPassword" %}', type: 'POST',
+    data: {user: username},
+    headers: {'X-CSRFToken': CSRF},
+    success: function(r){ alert(r); },
+    error: function(){ alert('密码重置失败！'); }
+  });
+}
+
+/* ── 提交统计：全选/全不选 ── */
+function selAll(tid){ document.querySelectorAll('.chk-'+tid).forEach(function(c){c.checked=true;}); }
+function selNone(tid){ document.querySelectorAll('.chk-'+tid).forEach(function(c){c.checked=false;}); }
+
+/* ── 下载选中作业 ── */
+function dlHomework(title, tid){
+  var list = [];
+  document.querySelectorAll('.chk-'+tid+':checked').forEach(function(c){ list.push(c.dataset.number); });
+  if(!list.length){ alert('请先勾选要下载的学生作业！'); return; }
+
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', '{% url "download_homework_ByTeacher" %}', true);
+  xhr.responseType = 'blob';
+  xhr.setRequestHeader('X-CSRFToken', CSRF);
+  xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.onload = function(){
+    if(this.status === 200){
+      var disp = this.getResponseHeader('Content-Disposition');
+      var fn = decodeURI(escape(disp.substring(20)));
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([this.response]));
+      a.download = fn; a.click();
+    }
+  };
+  xhr.send(JSON.stringify({taskName:title, taskId:tid, studentNumberList:list}));
+}
+
+/* ── 历史复用 ── */
+var _histData = [];
+function loadHistoryTasks(){
+  document.getElementById('historyList').innerHTML =
+    '<div class="text-center py-3"><div class="spinner-border text-primary"></div><p class="mt-2">加载中...</p></div>';
+  $.getJSON('/getHistoryTasks/' + COURSE_ID + '/', function(data){
+    _histData = data.courses || [];
+    renderHist(_histData);
+  }).fail(function(){ document.getElementById('historyList').innerHTML = '<p class="text-danger">加载失败</p>'; });
+}
+
+function renderHist(courses){
+  if(!courses.length){
+    document.getElementById('historyList').innerHTML = '<p class="text-muted text-center">没有可复用的历史实验</p>';
+    return;
+  }
+  var h = '';
+  courses.forEach(function(c){
+    h += '<div class="card mb-2 hist-course" data-term="'+c.courseTerm+'" data-name="'+c.courseName+'">';
+    h += '<div class="card-header py-1" style="font-size:.85rem;"><strong>'+c.courseName+'</strong>（'+c.classNumber+'班）— '+c.courseTerm+'</div>';
+    h += '<div class="card-body py-2"><div class="list-group list-group-flush">';
+    c.tasks.forEach(function(t){
+      h += '<label class="list-group-item d-flex align-items-center gap-2 py-1">';
+      h += '<input type="checkbox" class="form-check-input reuse-chk" value="'+t.id+'" onchange="updateReuseCount()">';
+      h += '<span>'+t.title+' <span class="text-muted" style="font-size:.75rem;">(附件'+t.maxFiles+'个)</span></span>';
+      h += '</label>';
+    });
+    h += '</div></div></div>';
+  });
+  document.getElementById('historyList').innerHTML = h;
+}
+
+function filterHistory(){
+  var kw = document.getElementById('reuseFilter').value.toLowerCase();
+  document.querySelectorAll('.hist-course').forEach(function(el){
+    var ok = el.dataset.term.toLowerCase().includes(kw) || el.dataset.name.toLowerCase().includes(kw);
+    el.style.display = ok ? '' : 'none';
+  });
+}
+
+function updateReuseCount(){
+  var n = document.querySelectorAll('.reuse-chk:checked').length;
+  document.getElementById('reuseCount').textContent = '已选 ' + n + ' 项';
+}
+
+function submitReuse(){
+  var ids = [];
+  document.querySelectorAll('.reuse-chk:checked').forEach(function(c){ ids.push(parseInt(c.value)); });
+  if(!ids.length){ alert('请先勾选要复用的实验！'); return; }
+  $.ajax({
+    url: '{% url "copyTasks" %}', type: 'POST',
+    contentType: 'application/json',
+    headers: {'X-CSRFToken': CSRF},
+    data: JSON.stringify({courseID: COURSE_ID, taskIDs: ids}),
+    success: function(d){
+      if(d.success){
+        alert('成功导入 ' + d.copied.length + ' 个实验：\n' + d.copied.join('\n'));
+        location.reload();
+      } else { alert('导入失败'); }
+    },
+    error: function(){ alert('导入失败！'); }
+  });
+}
+
+/* ── 保持 Tab 状态（刷新后记住选中 Tab） ── */
+(function(){
+  var key = 'courseTab_' + COURSE_ID;
+  var saved = sessionStorage.getItem(key);
+  if(saved){
+    var tab = document.querySelector('[data-bs-target="'+saved+'"]');
+    if(tab) new bootstrap.Tab(tab).show();
+  }
+  document.querySelectorAll('#courseTab button').forEach(function(btn){
+    btn.addEventListener('shown.bs.tab', function(e){
+      sessionStorage.setItem(key, e.target.getAttribute('data-bs-target'));
+    });
+  });
+})();
+</script>
+{% endblock %}

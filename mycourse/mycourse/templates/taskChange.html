@@ -1,119 +1,123 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <title>作业编辑</title>
-    {% load static %}
-    <link href="{% static 'css/teacherTasks.css' %}" rel="stylesheet"/>
+{% extends "base.html" %}
+{% load static %}
+{% block title %}编辑作业 - {{ task.title }}{% endblock %}
+{% block nav_courses %}active{% endblock %}
 
-    <link rel="stylesheet" href="{% static 'css/bootstrap.css' %}">
-    <!-- jQuery文件。务必在bootstrap.min.js 之前引入 -->
-    <script src="{% static 'js/jquery.min.js' %}"></script>
-    <!-- bootstrap.bundle.min.js 用于弹窗、提示、下拉菜单，包含了 popper.min.js -->
-    <script src="{% static 'js/popper.min.js' %}"></script>
-    <!-- 最新的 Bootstrap 核心 JavaScript 文件 -->
-    <script src="{% static 'js/bootstrap.min.js' %}"></script>
-    {# 为全选、全不选、下载作业绑定事件  #}
-    <script type="text/javascript" src="{% static 'js/teacherTasks.js' %}"></script>
+{% block extra_css %}
 <style>
-        .form-container {
-            max-width: 800px;
-            margin: 2rem auto;
-            padding: 2rem;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-        .readonly-field {
-            background-color: #f8f9fa;
-            pointer-events: none; /* 禁止编辑 */
-        }
-        .editable-section {
-            margin-top: 2rem;
-            padding-top: 2rem;
-            border-top: 1px solid #dee2e6;
-        }
-    </style>
+  .form-container { max-width: 860px; margin: 0 auto; }
+  .readonly-field { background-color: #f8f9fa; }
+</style>
+{% endblock %}
 
-</head>
-<body>
-<div class="container">
-     <!-- 欢迎语句和注销 -->
-    <div class="jumbotron ">
-        <h1>{{ name }}</h1>
-        <a href="{% url 'logout' %}" id="logout"> 注销</a>
-        <a href="{% url 'teacherCourseChange' course.courseTerm course.courseName course.classNumber %}" id="courseList-a"> 返回课程信息 </a>
+{% block content %}
+<div class="form-container">
+  <nav aria-label="breadcrumb" class="mb-3">
+    <ol class="breadcrumb" style="font-size:.85rem;">
+      <li class="breadcrumb-item"><a href="{% url 'teacherCourseList' %}">课程列表</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'teacherCourseChange' course.courseTerm course.courseName course.classNumber %}">{{ course.courseName }}</a></li>
+      <li class="breadcrumb-item active">编辑 — {{ task.title }}</li>
+    </ol>
+  </nav>
+
+  <h2 class="mb-3"><i class="bi bi-pencil"></i> 编辑作业</h2>
+
+  <div class="card mb-3">
+    <div class="card-header"><strong>基础信息（不可修改）</strong></div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">作业标题</label>
+          <input type="text" class="form-control readonly-field" value="{{ task.title }}" readonly>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">所属课程</label>
+          <input type="text" class="form-control readonly-field" value="{{ course.courseName }}（{{ course.classNumber }}班）" readonly>
+        </div>
+        <div class="col-12">
+          <label class="form-label">作业正文</label>
+          <textarea class="form-control readonly-field" rows="3" readonly>{{ task.content }}</textarea>
+        </div>
+      </div>
     </div>
-    <div class="courseList-div well">
-     <div class="form-container">
-        <h2 class="mb-4">编辑作业</h2>
+  </div>
 
-        <!-- 不可修改的基础信息 -->
-        <div class="mb-4">
-            <h5>基础信息（不可修改）</h5>
-            <div class="mb-3">
-                <label class="form-label">作业标题</label>
-                <input type="text" class="form-control readonly-field" value="{{ task.title }}" readonly>
-            </div>
-            <div class="mb-3">
-                <label class="form-label">作业正文</label>
-                <textarea class="form-control readonly-field" rows="3" readonly>{{ task.content }}</textarea>
-            </div>
-            <!-- 所属课程（原字段） -->
-            <div class="mb-3">
-                <label class="form-label">所属课程</label>
-                <input type="text" class="form-control readonly-field" value="{{ task.courseBelongTo  }}" readonly>
-            </div>
-            <!-- 新增：上传类型（显示在所属课程后，不可修改） -->
-            <div class="mb-3">
-                <label class="form-label">允许上传的文件类型</label>
-                <input type="text"
-                       class="form-control readonly-field"
-                       value="{{ task.uploadFileType|default:'*' }}">  <!-- 默认值兼容空数据 -->
+  <div class="card">
+    <div class="card-header"><strong>可编辑项</strong></div>
+    <div class="card-body">
+      <form method="post">
+        {% csrf_token %}
 
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">{{ form.display.label }}</label>
+            <div class="form-check form-switch mt-2">
+              {{ form.display }}
+              <label class="form-check-label" for="id_display">显示给学生</label>
             </div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="id_deadline">{{ form.deadline.label }} <span class="text-danger">*</span></label>
+            {{ form.deadline }}
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="id_maxFiles">{{ form.maxFiles.label }}</label>
+            {{ form.maxFiles }}
+          </div>
         </div>
 
-        <!-- 可修改的字段（显示在靠后位置） -->
-        <div class="editable-section">
-            <form id="taskForm" method="post">
-                {% csrf_token %}
+        <hr>
+        <h5>附件配置</h5>
 
-                <!-- 是否显示开关 -->
-                <div class="mb-3">
-                    <label for="id_display" class="form-label">是否显示 <span class="text-danger">*</span></label>
-                    <div class="form-check">
-                        <input type="checkbox"
-                               class="form-check-input"
-                               id="id_display"
-                               name="display"
-                               {% if task.display == True %}checked{% endif %}>
-                        <label class="form-check-label" for="id_display">
-                            {{ "是否显示" }}
-                        </label>
-                    </div>
-                    <div class="invalid-feedback">请选择是否显示。</div>
-                </div>
-
-                <!-- 截止日期选择（允许早于今日） -->
-                <div class="mb-4">
-                    <label for="id_deadline" class="form-label">截止日期 <span class="text-danger">*</span></label>
-                    <input type="date"
-                           class="form-control"
-                           id="id_deadline"
-                           name="deadline"
-                           value="{{ task.deadline|date:'Y-m-d' }}"
-                           required>
-                    <div class="form-text">截止日期可为任意历史或未来日期。</div>
-                    <div class="invalid-feedback">请选择有效的截止日期。</div>
-                </div>
-
-                <!-- 提交按钮 -->
-                <button type="submit" class="btn btn-primary">保存修改</button>
-                <button type="button" class="btn btn-secondary ms-2" onclick="window.history.back()">取消</button>
-            </form>
+        <div class="row g-3" id="editSlot1">
+          <div class="col-md-6">
+            <label class="form-label" for="id_slot1Name">{{ form.slot1Name.label }} <span class="text-danger">*</span></label>
+            {{ form.slot1Name }}
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="id_slot1Type">{{ form.slot1Type.label }}</label>
+            {{ form.slot1Type }}
+          </div>
         </div>
+        <div class="row g-3 mt-1" id="editSlot2">
+          <div class="col-md-6">
+            <label class="form-label" for="id_slot2Name">{{ form.slot2Name.label }}</label>
+            {{ form.slot2Name }}
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="id_slot2Type">{{ form.slot2Type.label }}</label>
+            {{ form.slot2Type }}
+          </div>
+        </div>
+        <div class="row g-3 mt-1" id="editSlot3">
+          <div class="col-md-6">
+            <label class="form-label" for="id_slot3Name">{{ form.slot3Name.label }}</label>
+            {{ form.slot3Name }}
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="id_slot3Type">{{ form.slot3Type.label }}</label>
+            {{ form.slot3Type }}
+          </div>
+        </div>
+
+        <div class="mt-4">
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存修改</button>
+          <a href="{% url 'teacherCourseChange' course.courseTerm course.courseName course.classNumber %}" class="btn btn-secondary ms-2">取消</a>
+        </div>
+      </form>
     </div>
-    </div>
+  </div>
 </div>
-</body>
-</html>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function toggleEditSlots(){
+  var n = parseInt(document.getElementById('id_maxFiles').value) || 1;
+  document.getElementById('editSlot2').style.display = n >= 2 ? '' : 'none';
+  document.getElementById('editSlot3').style.display = n >= 3 ? '' : 'none';
+}
+document.getElementById('id_maxFiles').addEventListener('change', toggleEditSlots);
+toggleEditSlots();
+</script>
+{% endblock %}
