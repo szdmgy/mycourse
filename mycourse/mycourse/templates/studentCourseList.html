@@ -1,49 +1,38 @@
-<!DOCTYPE html>
-<html lang="en">
+{% extends "base.html" %}
+{% block title %}我的课程 - 实验报告收集系统{% endblock %}
+{% block nav_stu_courses %}active{% endblock %}
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <title>Student</title>
-    {% load static %}
-    <link href="{% static 'css/studentCourseList.css' %}" rel="stylesheet"/>
-<link rel="stylesheet" href="{% static 'css/bootstrap.css' %}">
-<!-- jQuery文件。务必在bootstrap.min.js 之前引入 -->
-<script src="{% static 'js/jquery.min.js' %}"></script>
-<!-- bootstrap.bundle.min.js 用于弹窗、提示、下拉菜单，包含了 popper.min.js -->
-<script src="{% static 'js/popper.min.js' %}"></script>
-<!-- 最新的 Bootstrap 核心 JavaScript 文件 -->
-<script src="{% static 'js/bootstrap.min.js' %}"></script>
-{# 为全选、全不选、下载作业绑定事件  #}
-<script type="text/javascript" src="{% static 'js/teacherTasks.js' %}"></script>
-</head>
-<body>
-<div class="container">
-    <!-- 欢迎语句和注销 -->
-    <div class="jumbotron">
-    <h1>{{ name }}</h1>
-    <a href="{% url 'logout' %}" id="logout"> 注销</a>
-    <a href="{% url 'profile_edit' %}" id="courseList-a"> 查看个人信息</a>
+{% block content %}
+<h2 class="mb-3"><i class="bi bi-book"></i> 我的课程</h2>
+
+{% if course %}
+  <p class="text-muted-sm mb-3">点击课程卡片进入作业列表</p>
+  <div class="row g-3">
+    {% for item, taskCount in course %}
+    <div class="col-md-6 col-lg-4">
+      <a href="{% url 'studentCourse' item.courseTerm item.courseName item.classNumber %}"
+         class="text-decoration-none">
+        <div class="card h-100">
+          <div class="card-body">
+            <h3 class="card-title mb-2">{{ item.courseName }}</h3>
+            <p class="mb-1" style="font-size:.85rem; color:#666;">
+              {{ item.courseTerm }}<br>
+              班号：{{ item.classNumber }} &nbsp; 教师：{{ item.teachers }}
+            </p>
+          </div>
+          <div class="card-footer d-flex justify-content-between align-items-center"
+               style="background:#f8f9fa;">
+            <span style="font-size:.85rem;">共 {{ taskCount }} 个实验</span>
+            <span class="badge bg-primary rounded-pill">{{ taskCount }}</span>
+          </div>
+        </div>
+      </a>
     </div>
-
-    <div class="courseList-div well">
-
-        {% if course %}
-            <p>目前你选择了以下课程，点击进入课程页面</p>
-            <div class="list-group">
-            {% for courseItem, taskNumber in course %}
-                <a href="{% url 'studentCourse' courseItem.courseTerm courseItem.courseName courseItem.classNumber %}" class="list-group-item active">{{courseItem.courseTerm}}{{courseItem.courseName}}{{courseItem.classNumber }}&emsp;<span class="badge">{{ taskNumber }}</span></a>
-                <br/>
-            {% endfor %}
-            </div>
-        {% else %}
-            <p>目前你没有选择课程，请联系老师导入名单！</p>
-        {% endif %}
-
-    </div>
-
-</div>
-</body>
-
-
-</html>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="card p-4 text-center">
+    <p style="font-size:1rem; color:#666;"><i class="bi bi-info-circle"></i> 目前你没有选择课程，请联系老师导入名单！</p>
+  </div>
+{% endif %}
+{% endblock %}

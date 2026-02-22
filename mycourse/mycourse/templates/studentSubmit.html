@@ -1,156 +1,123 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <title>提交作业</title>
-    {% load static %}
-    <link href="{% static 'css/teacherTasks.css' %}" rel="stylesheet"/>
+{% extends "base.html" %}
+{% load static %}
+{% block title %}提交作业 - {{ task.title }}{% endblock %}
+{% block nav_stu_courses %}active{% endblock %}
 
-    <link rel="stylesheet" href="{% static 'css/bootstrap.css' %}">
-    <!-- jQuery文件。务必在bootstrap.min.js 之前引入 -->
-    <script src="{% static 'js/jquery.min.js' %}"></script>
-    <!-- bootstrap.bundle.min.js 用于弹窗、提示、下拉菜单，包含了 popper.min.js -->
-    <script src="{% static 'js/popper.min.js' %}"></script>
-    <!-- 最新的 Bootstrap 核心 JavaScript 文件 -->
-    <script src="{% static 'js/bootstrap.min.js' %}"></script>
-    {# 为全选、全不选、下载作业绑定事件  #}
-    <script type="text/javascript" src="{% static 'js/teacherTasks.js' %}"></script>
+{% block extra_css %}
 <style>
-    .task-detail-container {
-        max-width: 800px;
-        margin: 20px auto;
-        padding: 20px;
-        background: #f9f9f9;
-        border-radius: 8px;
-    }
-
-    .task-field {
-        margin-bottom: 15px;
-    }
-
-    .task-field label {
-        font-weight: bold;
-        display: block;
-        margin-bottom: 5px;
-    }
-
-    .readonly-field {
-        padding: 8px;
-        background: white;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-    }
-
-    .content-box {
-        min-height: 150px;
-    }
-
-    .text-success {
-        color: #28a745;
-    }
-
-    .text-muted {
-        color: #6c757d;
-    }
-
-
+  .task-container { max-width: 860px; margin: 0 auto; }
+  .slot-card { border: 2px dashed #dee2e6; border-radius: 8px; padding: 20px; margin-bottom: 15px; transition: border-color .2s; }
+  .slot-card:hover { border-color: #1a6b9b; }
+  .slot-card.uploaded { border-color: #28a745; border-style: solid; background: #f8fff8; }
+  .slot-header { font-weight: 600; margin-bottom: 10px; }
+  .slot-type { font-size: .8rem; color: #888; }
+  .uploaded-file { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #e8f5e9; border-radius: 6px; margin-top: 10px; }
+  .uploaded-file i { color: #28a745; font-size: 1.1rem; }
 </style>
+{% endblock %}
 
-</head>
-<body>
-<div class="container">
-     <!-- 欢迎语句和注销 -->
-    <div class="jumbotron ">
-        <h1>{{ name }}</h1>
-        <a href="{% url 'logout' %}" id="logout"> 注销</a>
-        <a href="{% url 'studentCourse' course.courseTerm course.courseName course.classNumber %}" id="courseList-a"> 返回作业信息 </a>
+{% block content %}
+<div class="task-container">
+  <nav aria-label="breadcrumb" class="mb-3">
+    <ol class="breadcrumb" style="font-size:.85rem;">
+      <li class="breadcrumb-item"><a href="{% url 'studentCourseList' %}">我的课程</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'studentCourse' course.courseTerm course.courseName course.classNumber %}">{{ course.courseName }}</a></li>
+      <li class="breadcrumb-item active">{{ task.title }}</li>
+    </ol>
+  </nav>
 
+  <div class="card mb-3">
+    <div class="card-body">
+      <h2 class="card-title mb-2">{{ task.title }}</h2>
+      <div class="mb-2" style="font-size:.85rem; color:#555;">
+        <strong>所属课程：</strong>{{ course.courseName }}（{{ course.classNumber }}班）
+        &nbsp;|&nbsp;
+        <strong>截止日期：</strong>
+        <span {% if task.deadline < today %}style="color:#dc3545;"{% endif %}>
+          {{ task.deadline|date:"Y年m月d日" }}
+        </span>
+      </div>
+      <div class="card p-3 mb-0" style="background:#f8f9fa; white-space:pre-wrap;">{{ task.content }}</div>
     </div>
-    <div class="courseList-div well">
+  </div>
 
-        <div class="task-detail-container">
-            <!--h2>作业详情 (只读)</h2-->
+  <h3 class="mb-3"><i class="bi bi-paperclip"></i> 附件上传（共 {{ task.maxFiles }} 个）</h3>
 
-            <div class="task-field">
-                <label>标题:</label>
-                <div class="readonly-field">{{ task.title }}</div>
-            </div>
-
-            <div class="task-field">
-                <label>所属课程:</label>
-                <div class="readonly-field">{{ task.courseBelongTo }}</div>
-            </div>
-
-            <div class="task-field">
-                <label>内容:</label>
-                <div class="readonly-field content-box">{{ task.content|linebreaks }}</div>
-            </div>
-
-            <div class="task-field">
-                <label>上传文件类型:</label>
-                <div class="readonly-field">{{ task.uploadFileType }}</div>
-            </div>
-
-            <div class="task-field">
-                <label>截止日期:</label>
-                <div class="readonly-field">{{ task.deadline|date:"Y年m月d日" }}</div>
-            </div>
-
-            <div class="upload-div">
-                <form id="file{{ task.id }}" >
-                    {% csrf_token %}
-
-                     <input type="file" name="file" id="file" class="fileInput" accept="{{ task.uploadFileType }}"  />
-
-                    <input type="button" value="上传文件" class="btn btn btn-outline-secondary btn-sm" onclick="Upload_file({{ task.id }})">
-                </form>
-        </div>
-
-            <div class="notice-div">
-            {% if filePath == 'False' %}
-                <div class="alert alert-danger" role="alert"><span class="alert-link">你还未提交作业!!!!!</span></div>
-            {% else %}
-                <div class="alert alert-success" role="alert"><a class="alert-link" href="{% url 'download_file' %}?url={{ filePath }}&task={{ task.id }}">{{ filePath }}</a></div>
-            {% endif %}
-        </div>
-
-        </div>
-
+  {% for slot in slots %}
+  <div class="slot-card {% if slot.fileId %}uploaded{% endif %}" id="slot-card-{{ slot.slot }}">
+    <div class="d-flex justify-content-between align-items-center slot-header">
+      <span>
+        <i class="bi bi-file-earmark"></i> 附件{{ slot.slot }}：{{ slot.name }}
+      </span>
+      <span class="slot-type">
+        {% if slot.type == '*' %}不限类型{% else %}仅 {{ slot.type }}{% endif %}
+      </span>
     </div>
 
+    <form id="upload-form-{{ slot.slot }}" class="d-flex align-items-center gap-2 flex-wrap">
+      {% csrf_token %}
+      <input type="file" name="file" id="file-{{ slot.slot }}" class="form-control form-control-sm"
+             style="max-width:350px;"
+             {% if slot.type != '*' %}accept="{{ slot.type }}"{% endif %}>
+      <button type="button" class="btn btn-outline-primary btn-sm"
+              onclick="uploadSlot({{ task.id }}, {{ slot.slot }})">
+        <i class="bi bi-cloud-upload"></i> 上传
+      </button>
+    </form>
+
+    <div id="status-{{ slot.slot }}">
+      {% if slot.fileId %}
+        <div class="uploaded-file">
+          <i class="bi bi-check-circle-fill"></i>
+          <a href="{% url 'download_homework_file' slot.fileId %}" class="text-decoration-none">
+            {{ slot.originalName }}
+          </a>
+          <span style="font-size:.75rem; color:#888;">（点击下载）</span>
+        </div>
+      {% else %}
+        <div class="mt-2" style="font-size:.85rem; color:#999;">
+          <i class="bi bi-info-circle"></i> 尚未上传
+        </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
 
 </div>
-</body>
+{% endblock %}
 
-<script type="text/javascript">
-     function Upload_file(id) {
-    console.log("文件开始上传！");
-    var fileForm = '#file' + id;
-    var formData = new FormData($(fileForm)[0]);
-    formData.append('taskId', id);
-    $.ajax({
-        url: '{% url 'upload_file' %}',
-        type: 'POST',
-        data: formData,
-        async:false,
-        cache: false,
-        contentType: false,
-        processData: false,
-        success: function (data) {
-            if (data === 'YES'){
-                alert("文件上传成功！");
-                window.location.reload();
-            } else {
-                alert('Upload Error')
-            }
-        },
-        error: function (data) {
-            alert('上传格式失败！请检查文件格式！');
-            console.log(data);
-        }
-    });
- }
- </script>
+{% block extra_js %}
+<script>
+function uploadSlot(taskId, slot) {
+  var fileInput = document.getElementById('file-' + slot);
+  if (!fileInput.files.length) {
+    alert('请先选择文件');
+    return;
+  }
+  var form = document.getElementById('upload-form-' + slot);
+  var formData = new FormData(form);
+  formData.append('taskId', taskId);
+  formData.append('slot', slot);
 
-</html>
+  $.ajax({
+    url: '{% url "upload_file" %}',
+    type: 'POST',
+    data: formData,
+    cache: false,
+    contentType: false,
+    processData: false,
+    success: function(data) {
+      if (data === 'YES') {
+        alert('附件' + slot + ' 上传成功！');
+        window.location.reload();
+      } else {
+        alert(data || '上传失败');
+      }
+    },
+    error: function() {
+      alert('上传失败，请检查文件格式！');
+    }
+  });
+}
+</script>
+{% endblock %}
