@@ -23,32 +23,41 @@
   <h2 class="mb-3"><i class="bi bi-pencil"></i> 编辑作业</h2>
 
   <div class="card mb-3">
-    <div class="card-header"><strong>基础信息（不可修改）</strong></div>
+    <div class="card-header"><strong>所属课程（不可修改）</strong></div>
     <div class="card-body">
       <div class="row g-3">
-        <div class="col-md-6">
-          <label class="form-label">作业标题</label>
-          <input type="text" class="form-control readonly-field" value="{{ task.title }}" readonly>
+        <div class="col-md-4">
+          <label class="form-label">学期</label>
+          <input type="text" class="form-control readonly-field" value="{{ course.courseTerm }}" readonly>
         </div>
-        <div class="col-md-6">
-          <label class="form-label">所属课程</label>
-          <input type="text" class="form-control readonly-field" value="{{ course.courseName }}（{{ course.classNumber }}班）" readonly>
+        <div class="col-md-4">
+          <label class="form-label">课程名</label>
+          <input type="text" class="form-control readonly-field" value="{{ course.courseName }}" readonly>
         </div>
-        <div class="col-12">
-          <label class="form-label">作业正文</label>
-          <textarea class="form-control readonly-field" rows="3" readonly>{{ task.content }}</textarea>
+        <div class="col-md-4">
+          <label class="form-label">班号</label>
+          <input type="text" class="form-control readonly-field" value="{{ course.classNumber }}班" readonly>
         </div>
       </div>
     </div>
   </div>
 
   <div class="card">
-    <div class="card-header"><strong>可编辑项</strong></div>
+    <div class="card-header"><strong>作业信息</strong></div>
     <div class="card-body">
-      <form method="post">
+      <form method="post" id="taskEditForm">
         {% csrf_token %}
 
         <div class="row g-3">
+          <div class="col-md-8">
+            <label class="form-label" for="id_title">{{ form.title.label }} <span class="text-danger">*</span></label>
+            {{ form.title }}
+            {% if submitted_count > 0 %}
+            <div class="form-text text-warning">
+              <i class="bi bi-exclamation-triangle"></i> 已有 {{ submitted_count }} 名学生提交了作业，修改标题将影响已提交文件的路径。
+            </div>
+            {% endif %}
+          </div>
           <div class="col-md-4">
             <label class="form-label">{{ form.display.label }}</label>
             <div class="form-check form-switch mt-2">
@@ -56,11 +65,19 @@
               <label class="form-check-label" for="id_display">显示给学生</label>
             </div>
           </div>
-          <div class="col-md-4">
+          <div class="col-12">
+            <label class="form-label" for="id_content">{{ form.content.label }} <span class="text-danger">*</span></label>
+            {{ form.content }}
+          </div>
+        </div>
+
+        <hr>
+        <div class="row g-3">
+          <div class="col-md-6">
             <label class="form-label" for="id_deadline">{{ form.deadline.label }} <span class="text-danger">*</span></label>
             {{ form.deadline }}
           </div>
-          <div class="col-md-4">
+          <div class="col-md-6">
             <label class="form-label" for="id_maxFiles">{{ form.maxFiles.label }}</label>
             {{ form.maxFiles }}
           </div>
@@ -112,6 +129,9 @@
 
 {% block extra_js %}
 <script>
+var ORIGINAL_TITLE = '{{ original_title|escapejs }}';
+var SUBMITTED_COUNT = {{ submitted_count }};
+
 function toggleEditSlots(){
   var n = parseInt(document.getElementById('id_maxFiles').value) || 1;
   document.getElementById('editSlot2').style.display = n >= 2 ? '' : 'none';
@@ -119,5 +139,16 @@ function toggleEditSlots(){
 }
 document.getElementById('id_maxFiles').addEventListener('change', toggleEditSlots);
 toggleEditSlots();
+
+document.getElementById('taskEditForm').addEventListener('submit', function(e){
+  var newTitle = document.getElementById('id_title').value.trim();
+  if(SUBMITTED_COUNT > 0 && newTitle !== ORIGINAL_TITLE){
+    var msg = '⚠ 已有 ' + SUBMITTED_COUNT + ' 名学生提交了作业。\n' +
+              '修改标题会影响已提交作业的文件路径，请通知相关学生重新提交作业。\n\n确定要修改吗？';
+    if(!confirm(msg)){
+      e.preventDefault();
+    }
+  }
+});
 </script>
 {% endblock %}

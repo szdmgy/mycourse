@@ -738,12 +738,15 @@ def resetPassword(request):
 class TaskEditForm(forms.ModelForm):
     class Meta:
         model = Task
-        fields = ['display', 'deadline', 'maxFiles',
+        fields = ['title', 'content', 'display', 'deadline', 'maxFiles',
                   'slot1Name', 'slot1Type', 'slot2Name', 'slot2Type',
                   'slot3Name', 'slot3Type']
         widgets = {
+            'title': forms.TextInput(attrs={'class': 'form-control'}),
+            'content': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'display': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-            'deadline': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
+            'deadline': forms.DateInput(format='%Y-%m-%d',
+                                        attrs={'type': 'date', 'class': 'form-control'}),
             'maxFiles': forms.Select(choices=[(1, '1'), (2, '2'), (3, '3')],
                                      attrs={'class': 'form-select', 'id': 'id_maxFiles'}),
             'slot1Name': forms.TextInput(attrs={'class': 'form-control'}),
@@ -754,6 +757,8 @@ class TaskEditForm(forms.ModelForm):
             'slot3Type': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '* 为不限'}),
         }
         labels = {
+            'title': '作业标题',
+            'content': '作业正文',
             'display': '是否显示',
             'deadline': '截止日期',
             'maxFiles': '最大附件数',
@@ -781,11 +786,14 @@ def taskChange(request, taskID, taskTitle):
     else:
         form = TaskEditForm(instance=task)
 
+    submitted_count = models.Homework.objects.filter(task=task).count()
     context = {
         'task': task,
         'form': form,
         'name': get_display_name(request.user),
         'course': task.courseBelongTo,
+        'submitted_count': submitted_count,
+        'original_title': task.title,
     }
     return render(request, 'taskChange.html', context)
 
