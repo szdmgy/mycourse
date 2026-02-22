@@ -190,7 +190,7 @@ def studentCourse(request, courseTerm, courseName, classNumber):
             if delay:
                 submitDate = '逾期提交:' + homework.time.strftime("%Y年%m月%d日 %H:%M")
             taskRecords.append({
-                'title': task.title, 'type': task.uploadFileType,
+                'title': task.title, 'type': task.slot1Type,
                 'time': submitDate, 'deadline': task.deadline,
                 'delay': delay, 'id': task.id,
             })
@@ -199,7 +199,7 @@ def studentCourse(request, courseTerm, courseName, classNumber):
             delay = today > task.deadline
             submitDate = '逾期未提交' if delay else ''
             taskRecords.append({
-                'title': task.title, 'type': task.uploadFileType,
+                'title': task.title, 'type': task.slot1Type,
                 'time': submitDate, 'deadline': task.deadline,
                 'delay': delay, 'id': task.id,
             })
@@ -426,7 +426,6 @@ def addHomework(request):
 
     homeworkTitle = request.POST.get('title', "")
     homeworkContent = request.POST.get('content', "请完成" + homeworkTitle)
-    uploadFileType = request.POST.get('uploadFileType', "*").replace('，', ',').replace('。', '.').replace(';', ',')
     # Bug fix: 使用 courseID 而非 courseNumber+courseName
     courseID = request.POST.get('courseID', "")
     if not courseID:
@@ -449,7 +448,7 @@ def addHomework(request):
 
     models.Task.objects.create(
         title=homeworkTitle, content=homeworkContent,
-        uploadFileType=uploadFileType, courseBelongTo=course
+        courseBelongTo=course,
     )
     return HttpResponseRedirect(request.headers.get("Referer"))
 

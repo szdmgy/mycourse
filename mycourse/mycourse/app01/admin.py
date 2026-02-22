@@ -13,7 +13,7 @@ class UserProfileAdmin(admin.ModelAdmin):
 
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
-    list_display = ['courseBelongTo', 'title', 'maxFiles', 'display', 'deadline']
+    list_display = ['courseBelongTo', 'title', 'maxFiles', 'slot1Name', 'slot1Type', 'display', 'deadline']
     list_filter = ['courseBelongTo']
     search_fields = ['title']
 

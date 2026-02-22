@@ -58,13 +58,13 @@ def extract_task_data(upload_file):
         rows = ws.max_row
         tasks = []
         for row in range(2, rows + 1):
-            id_val, title, content, uploadFileType, display = (
+            id_val, title, content, slot1Type, display = (
                 ws.cell(row, 1).value, ws.cell(row, 2).value,
                 ws.cell(row, 3).value, ws.cell(row, 4).value, ws.cell(row, 5).value
             )
             if id_val and title and content:
                 display = True if display == 'Y' else False
-                tasks.append([int(id_val), title, content, uploadFileType, display])
+                tasks.append([int(id_val), title, content, slot1Type or '*', display])
             else:
                 break
 
@@ -163,6 +163,6 @@ def create_task_data(tasks):
             if not models.Task.objects.filter(courseBelongTo=course, title=task[1]).exists():
                 logger.info("创建作业: course=%s, title=%s", course, task[1])
                 models.Task.objects.create(
-                    title=task[1], content=task[2], uploadFileType=task[3],
+                    title=task[1], content=task[2], slot1Type=task[3],
                     courseBelongTo=course, display=task[4],
                 )
