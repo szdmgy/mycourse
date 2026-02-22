@@ -17,7 +17,7 @@ from django import forms
 
 from app01 import models
 from app01.models import Task, UserProfile, HomeworkFile
-from app01.upload_data import extract_import_data
+from app01.upload_data import extract_import_data, parse_course_excel, preview_course_import, write_course_data
 from app01.utils import file_iterator, is_teacher_or_admin, get_display_name, safe_filename
 from mycourse.settings import BASE_DIR, FILES_ROOT
 
@@ -1014,6 +1014,7 @@ def process_files(request):
 
 @login_required
 def import_data(request):
+    """旧版导入入口（保留兼容）"""
     if not request.user.is_superuser:
         return HttpResponse("警告！您不是管理员！无法进入此界面！")
 
@@ -1026,6 +1027,82 @@ def import_data(request):
         return render(request, 'import.html', result)
 
     return render(request, 'import.html')
+
+
+@login_required
+@require_POST
+def preview_import(request):
+    """解析 → 预览（不写库），将解析数据存入 session"""
+    if not is_teacher_or_admin(request.user):
+        return HttpResponse("您没有权限进行该操作！")
+
+    upload_file = request.FILES.get('upload_file')
+    datatype = request.POST.get('datatype', 'course')
+    if not upload_file:
+        return render(request, 'import_preview.html', {
+            'error': '请选择文件',
+            'name': get_display_name(request.user),
+        })
+
+    if datatype == 'course':
+        parsed = parse_course_excel(upload_file)
+        if 'error' in parsed:
+            return render(request, 'import_preview.html', {
+                'error': parsed['error'],
+                'name': get_display_name(request.user),
+            })
+        preview = preview_course_import(parsed)
+        request.session['import_parsed_data'] = parsed
+        request.session['import_datatype'] = 'course'
+        return render(request, 'import_preview.html', {
+            'preview': preview,
+            'datatype': 'course',
+            'name': get_display_name(request.user),
+        })
+    else:
+        return render(request, 'import_preview.html', {
+            'error': f'暂不支持 "{datatype}" 类型的预览导入，请使用旧版导入',
+            'name': get_display_name(request.user),
+        })
+
+
+@login_required
+@require_POST
+def confirm_import(request):
+    """确认导入：从 session 取数据写入 DB"""
+    if not is_teacher_or_admin(request.user):
+        return HttpResponse("您没有权限进行该操作！")
+
+    parsed = request.session.pop('import_parsed_data', None)
+    datatype = request.session.pop('import_datatype', None)
+
+    if not parsed:
+        return render(request, 'import_preview.html', {
+            'error': '预览数据已过期，请重新上传文件',
+            'name': get_display_name(request.user),
+        })
+
+    try:
+        if datatype == 'course':
+            course_obj = write_course_data(parsed)
+            result_msg = (
+                f"导入成功！课程：{parsed['courseName']}（{parsed['courseNumber']}）"
+                f"班号 {parsed['classNumber']}，"
+                f"学生 {len(parsed['students'])} 人"
+            )
+        else:
+            result_msg = '导入完成'
+
+        return render(request, 'import_preview.html', {
+            'success': result_msg,
+            'name': get_display_name(request.user),
+        })
+    except Exception as e:
+        logger.exception("confirm_import 写入失败")
+        return render(request, 'import_preview.html', {
+            'error': f'写入数据库失败：{str(e)}',
+            'name': get_display_name(request.user),
+        })
 
 
 @login_required

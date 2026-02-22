@@ -48,6 +48,8 @@ urlpatterns = [
     # path('upload-files/course/', views.file_upload_course, name='file_upload_course'),
 
     path('manager/import/', views.import_data, name='import_data'),
+    path('preview-import/', views.preview_import, name='preview_import'),
+    path('confirm-import/', views.confirm_import, name='confirm_import'),
     path('addMemberByManager/', views.addMemberByManager, name='addMemberByManager'),
     path('deleteMemberByManager/<str:memberNumber>/', views.deleteMemberByManager, name='deleteMemberByManager'),
     # 老师端操作

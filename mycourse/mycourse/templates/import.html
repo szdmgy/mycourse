@@ -107,11 +107,25 @@
 
         <h2>导入EXCEL数据文件</h2>
 
+        <h3 style="margin-top:25px; font-size:18px;">方式一：预览后确认导入（推荐）</h3>
+        <form method="post" action="{% url 'preview_import' %}" enctype="multipart/form-data" style="margin-bottom:30px;">
+          {% csrf_token %}
+          <div style="margin-bottom:10px;">
+            <label>选择课程 Excel 文件：</label>
+            <input type="file" name="upload_file" accept=".xls,.xlsx,.xlsm" required>
+            <input type="hidden" name="datatype" value="course">
+          </div>
+          <button type="submit" class="submit-btn" style="float:none;">预览导入</button>
+        </form>
+
+        <hr style="border-top:1px dashed #ccc; margin:20px 0;">
+
+        <h3 style="font-size:18px;">方式二：直接导入（旧版）</h3>
         <form id="excelUploadForm" method="post" enctype="multipart/form-data">
           {% csrf_token %}
           <div>
             <label>导入文件：</label>
-            <input type="file" name="upload_file"  required>
+            <input type="file" name="upload_file" required>
             <select name="file_format">
               <option value="course">课程</option>
               <option value="task">作业</option>
@@ -119,7 +133,7 @@
               <option value="teacher">老师</option>
             </select>
           </div>
-          <button type="submit">提交</button>
+          <button type="submit">直接导入</button>
         </form>
         {% if error %}
             <div class="alert alert-error">{{ error }}</div>

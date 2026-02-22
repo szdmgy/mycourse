@@ -6,6 +6,8 @@ from app01 import models
 logger = logging.getLogger('app01')
 
 
+# ═══════════════════════ 旧版一步式接口（保留兼容） ═══════════════════════
+
 def extract_import_data(upload_file, file_format):
     if file_format == 'course':
         return extract_course_data(upload_file)
@@ -23,28 +25,10 @@ def extract_import_data(upload_file, file_format):
 
 def extract_course_data(upload_file):
     try:
-        wb = openpyxl.load_workbook(upload_file)
-        ws = wb[wb.sheetnames[0]]
-        courseTerm = ws.cell(3, 1).value.strip()
-        courseNumber = ws.cell(5, 3).value.strip()
-        courseName = ws.cell(5, 18).value.strip()
-        classNumber = ws.cell(5, 6).value.strip()
-        teachers = ws.cell(6, 11).value.strip()
-
-        rows = ws.max_row
-        students = []
-        for row in range(10, rows):
-            number, name, sex = ws.cell(row, 2).value, ws.cell(row, 3).value, ws.cell(row, 4).value
-            if number and name and sex:
-                students.append([str(number), name, sex])
-            else:
-                break
-
-        create_course_data({
-            'courseTerm': courseTerm, 'courseNumber': courseNumber,
-            'courseName': courseName, 'classNumber': classNumber,
-            'teachers': teachers, 'students': students,
-        })
+        parsed = parse_course_excel(upload_file)
+        if 'error' in parsed:
+            return parsed
+        write_course_data(parsed)
         return {'success': '课程数据文件解析成功'}
     except Exception as e:
         logger.exception("课程数据解析失败")
@@ -68,7 +52,7 @@ def extract_task_data(upload_file):
             else:
                 break
 
-        create_task_data(tasks)
+        write_task_data(tasks)
         return {'success': '作业数据文件解析成功'}
     except Exception as e:
         logger.exception("作业数据解析失败")
@@ -87,7 +71,7 @@ def extract_student_data(upload_file):
                 student_list.append([str(number), name, sex])
             else:
                 break
-        create_student_user(student_list)
+        write_student_users(student_list)
         return {'success': '学生数据文件解析成功'}
     except Exception as e:
         logger.exception("学生数据解析失败")
@@ -106,57 +90,219 @@ def extract_teacher_data(upload_file):
                 teacher_list.append([str(number), name, sex])
             else:
                 break
-        create_teacher_user(teacher_list)
+        write_teacher_users(teacher_list)
         return {'success': '老师数据文件解析成功'}
     except Exception as e:
         logger.exception("教师数据解析失败")
         return {'error': f'老师数据文件解析失败：{str(e)}'}
 
 
-def create_teacher_user(teacher_list):
-    for teacher in teacher_list:
-        if models.User.objects.filter(username=teacher[0]).count() == 0:
-            models.User.objects.create_user(username=teacher[0], password='szu' + teacher[0])
-            models.UserProfile.objects.create(
-                name=teacher[1],
-                user=models.User.objects.filter(username=teacher[0]).first(),
-                type='T',
-                gender='M' if teacher[2] == '男' else 'F',
-            )
+# ═══════════════════════ 第一层：纯解析（不访问 DB） ═══════════════════════
+
+def parse_course_excel(upload_file):
+    """解析课程 Excel，返回结构化数据（不写库、不查库）"""
+    try:
+        wb = openpyxl.load_workbook(upload_file)
+        ws = wb[wb.sheetnames[0]]
+
+        def cell_str(row, col):
+            v = ws.cell(row, col).value
+            return str(v).strip() if v is not None else ''
+
+        course_term = cell_str(3, 1)
+        course_number = cell_str(5, 3)
+        course_name = cell_str(5, 18)
+        class_number = cell_str(5, 6)
+        teachers_str = cell_str(6, 11)
+
+        errors = []
+        if not course_term:
+            errors.append('学期（A3）为空')
+        if not course_number:
+            errors.append('课程编号（C5）为空')
+        if not course_name:
+            errors.append('课程名（R5）为空')
+        if not class_number:
+            errors.append('班号（F5）为空')
+
+        teacher_names = [t.strip() for t in teachers_str.split(',') if t.strip()] if teachers_str else []
+
+        students = []
+        for row in range(10, ws.max_row + 1):
+            number = ws.cell(row, 2).value
+            name = ws.cell(row, 3).value
+            sex = ws.cell(row, 4).value
+            if not number and not name:
+                break
+            if number and name:
+                students.append({
+                    'number': str(number).strip(),
+                    'name': str(name).strip(),
+                    'gender': str(sex).strip() if sex else '男',
+                })
+            else:
+                errors.append(f'第{row}行数据不完整：学号={number}, 姓名={name}')
+
+        if errors:
+            return {'error': '；'.join(errors)}
+
+        return {
+            'courseTerm': course_term,
+            'courseNumber': course_number,
+            'courseName': course_name,
+            'classNumber': class_number,
+            'teachers': teacher_names,
+            'students': students,
+        }
+    except Exception as e:
+        logger.exception("课程 Excel 解析异常")
+        return {'error': f'文件解析失败：{str(e)}'}
 
 
-def create_student_user(student_list):
-    for student in student_list:
-        if models.User.objects.filter(username=student[0]).count() == 0:
-            models.User.objects.create_user(username=student[0], password="szu" + student[0][4:])
-            models.UserProfile.objects.create(
-                name=student[1],
-                user=models.User.objects.filter(username=student[0]).first(),
-                type='S',
-                gender='M' if student[2] == '男' else 'F',
-            )
+# ═══════════════════════ 第二层：预览（读 DB 标注状态，不写 DB） ═══════════════════════
 
+def preview_course_import(parsed):
+    """对比 DB 标注每条数据的状态（新建/已存在/冲突），不写库"""
+    result = {
+        'course': {
+            'courseTerm': parsed['courseTerm'],
+            'courseNumber': parsed['courseNumber'],
+            'courseName': parsed['courseName'],
+            'classNumber': parsed['classNumber'],
+        },
+        'teachers': [],
+        'students': [],
+        'errors': [],
+        'summary': {},
+    }
 
-def create_course_data(course):
-    models.Course.objects.create(
-        courseTerm=course['courseTerm'], courseNumber=course['courseNumber'],
-        courseName=course['courseName'], classNumber=course['classNumber'],
-        teachers=course['teachers'],
-    )
-    course_obj = models.Course.objects.filter(
-        courseTerm=course['courseTerm'], courseNumber=course['courseNumber'],
-        courseName=course['courseName'], classNumber=course['classNumber'],
+    existing = models.Course.objects.filter(
+        courseTerm=parsed['courseTerm'],
+        courseNumber=parsed['courseNumber'],
+        classNumber=parsed['classNumber'],
     ).first()
-    create_student_user(course['students'])
-    for student in course['students']:
-        course_obj.members.add(models.UserProfile.objects.filter(user__username=student[0]).first())
-    for teacher in course['teachers'].split(','):
-        profile = models.UserProfile.objects.filter(name=teacher.strip()).first()
+    result['course']['status'] = '已存在(将关联)' if existing else '新建'
+    result['course']['exists'] = existing is not None
+
+    for tname in parsed['teachers']:
+        profile = models.UserProfile.objects.filter(name=tname, type='T').first()
+        if profile:
+            result['teachers'].append({
+                'name': tname, 'number': profile.user.username, 'status': '已存在',
+            })
+        else:
+            result['teachers'].append({
+                'name': tname, 'number': '—', 'status': '仅关联名称(无账号)',
+            })
+
+    new_count = 0
+    exist_count = 0
+    error_count = 0
+    for stu in parsed['students']:
+        user = User.objects.filter(username=stu['number']).first()
+        if user:
+            profile = models.UserProfile.objects.filter(user=user).first()
+            if profile and profile.name != stu['name']:
+                result['students'].append({
+                    **stu, 'status': f'已存在(姓名不一致: 库中={profile.name})',
+                    'conflict': True,
+                })
+                error_count += 1
+            else:
+                result['students'].append({**stu, 'status': '已存在', 'conflict': False})
+                exist_count += 1
+        else:
+            result['students'].append({**stu, 'status': '新建账号', 'conflict': False})
+            new_count += 1
+
+    result['summary'] = {
+        'student_new': new_count,
+        'student_exist': exist_count,
+        'student_error': error_count,
+        'student_total': len(parsed['students']),
+        'teacher_count': len(parsed['teachers']),
+        'course_status': result['course']['status'],
+    }
+
+    return result
+
+
+# ═══════════════════════ 第三层：写入 DB ═══════════════════════
+
+def write_course_data(parsed):
+    """将解析后的课程数据写入数据库"""
+    course_obj, created = models.Course.objects.get_or_create(
+        courseTerm=parsed['courseTerm'],
+        courseNumber=parsed['courseNumber'],
+        classNumber=parsed['classNumber'],
+        defaults={
+            'courseName': parsed['courseName'],
+            'teachers': ','.join(parsed['teachers']) if isinstance(parsed['teachers'], list) else parsed.get('teachers', ''),
+        }
+    )
+
+    if isinstance(parsed['students'], list) and parsed['students']:
+        if isinstance(parsed['students'][0], dict):
+            student_list = [[s['number'], s['name'], s.get('gender', '男')] for s in parsed['students']]
+        else:
+            student_list = parsed['students']
+    else:
+        student_list = parsed.get('students', [])
+
+    write_student_users(student_list)
+    for stu in student_list:
+        number = stu[0] if isinstance(stu, list) else stu['number']
+        profile = models.UserProfile.objects.filter(user__username=number).first()
         if profile:
             course_obj.members.add(profile)
 
+    teachers = parsed['teachers']
+    if isinstance(teachers, str):
+        teachers = [t.strip() for t in teachers.split(',') if t.strip()]
+    for tname in teachers:
+        profile = models.UserProfile.objects.filter(name=tname).first()
+        if profile:
+            course_obj.members.add(profile)
 
-def create_task_data(tasks):
+    return course_obj
+
+
+def write_student_users(student_list):
+    """创建学生账号（已存在则跳过）"""
+    for stu in student_list:
+        if isinstance(stu, dict):
+            number, name, gender = stu['number'], stu['name'], stu.get('gender', '男')
+        else:
+            number, name, gender = stu[0], stu[1], stu[2] if len(stu) > 2 else '男'
+
+        if not User.objects.filter(username=number).exists():
+            user_obj = User.objects.create_user(username=number, password='szu' + number[-6:])
+            models.UserProfile.objects.create(
+                name=name, user=user_obj, type='S',
+                gender='M' if gender == '男' else 'F',
+            )
+
+
+def write_teacher_users(teacher_list):
+    """创建教师账号（已存在则跳过）"""
+    for teacher in teacher_list:
+        if isinstance(teacher, dict):
+            number, name, gender = teacher['number'], teacher['name'], teacher.get('gender', '男')
+        else:
+            number, name, gender = teacher[0], teacher[1], teacher[2] if len(teacher) > 2 else '男'
+
+        if not User.objects.filter(username=number).exists():
+            User.objects.create_user(username=number, password='szu' + number)
+            models.UserProfile.objects.create(
+                name=name,
+                user=User.objects.filter(username=number).first(),
+                type='T',
+                gender='M' if gender == '男' else 'F',
+            )
+
+
+def write_task_data(tasks):
+    """创建作业数据"""
     for task in tasks:
         course = models.Course.objects.filter(id=task[0]).first()
         if course:

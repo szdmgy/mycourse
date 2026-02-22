@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>导入预览</title>
+  {% load static %}
+  <link rel="stylesheet" href="{% static 'css/bootstrap5.1.3.min.css' %}">
+  <link rel="stylesheet" href="{% static 'css/bootstrap-icons.min.css' %}">
+  <style>
+    body { font-family: 'Microsoft YaHei', sans-serif; margin: 0; padding: 20px; background: #f5f5f5; color: #333; }
+    .container { max-width: 1100px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,.1); }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; padding-bottom: 15px; border-bottom: 2px solid #eee; }
+    .header h1 { font-size: 22px; margin: 0; }
+    .header .links a { margin-left: 15px; text-decoration: none; color: #1a6b9b; }
+    .alert { padding: 15px 20px; border-radius: 6px; margin-bottom: 20px; font-size: 16px; }
+    .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .alert-danger { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    .section { margin-bottom: 25px; }
+    .section h3 { font-size: 18px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #eee; }
+    .course-info { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 30px; font-size: 16px; }
+    .course-info .label { color: #666; }
+    .course-info .value { font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; font-size: 15px; }
+    th { background: #f8f9fa; text-align: left; padding: 10px 12px; border-bottom: 2px solid #dee2e6; }
+    td { padding: 8px 12px; border-bottom: 1px solid #eee; }
+    .status-new { color: #28a745; font-weight: bold; }
+    .status-exist { color: #6c757d; }
+    .status-conflict { color: #dc3545; font-weight: bold; }
+    .summary { background: #f0f7ff; padding: 15px 20px; border-radius: 8px; font-size: 16px; line-height: 1.8; }
+    .btn-group { display: flex; gap: 15px; justify-content: center; margin-top: 30px; }
+    .btn { padding: 12px 30px; font-size: 16px; border: none; border-radius: 6px; cursor: pointer; text-decoration: none; display: inline-block; }
+    .btn-confirm { background: #28a745; color: #fff; }
+    .btn-confirm:hover { background: #218838; }
+    .btn-cancel { background: #6c757d; color: #fff; }
+    .btn-cancel:hover { background: #5a6268; }
+    .btn-back { background: #1a6b9b; color: #fff; }
+    .btn-back:hover { background: #155a80; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>{{ name }}</h1>
+    <div class="links">
+      <a href="{% url 'manager' %}">返回管理界面</a>
+      <a href="{% url 'logout' %}">注销</a>
+    </div>
+  </div>
+
+  {% if error %}
+    <div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> {{ error }}</div>
+    <div class="btn-group">
+      <a href="{% url 'import_data' %}" class="btn btn-back">返回重新上传</a>
+    </div>
+  {% endif %}
+
+  {% if success %}
+    <div class="alert alert-success"><i class="bi bi-check-circle"></i> {{ success }}</div>
+    <div class="btn-group">
+      <a href="{% url 'manager' %}" class="btn btn-back">返回管理界面</a>
+      <a href="{% url 'import_data' %}" class="btn btn-confirm">继续导入</a>
+    </div>
+  {% endif %}
+
+  {% if preview %}
+    <h2 style="font-size:22px; margin-bottom:20px;">导入预览 — 请确认后再写入</h2>
+
+    <div class="section">
+      <h3><i class="bi bi-journal-text"></i> 课程信息
+        <span style="font-size:14px; margin-left:10px;"
+              class="{% if preview.course.exists %}status-exist{% else %}status-new{% endif %}">
+          【{{ preview.course.status }}】
+        </span>
+      </h3>
+      <div class="course-info">
+        <div><span class="label">学期：</span><span class="value">{{ preview.course.courseTerm }}</span></div>
+        <div><span class="label">课程编号：</span><span class="value">{{ preview.course.courseNumber }}</span></div>
+        <div><span class="label">课程名：</span><span class="value">{{ preview.course.courseName }}</span></div>
+        <div><span class="label">班号：</span><span class="value">{{ preview.course.classNumber }}</span></div>
+      </div>
+    </div>
+
+    {% if preview.teachers %}
+    <div class="section">
+      <h3><i class="bi bi-person-badge"></i> 教师（{{ preview.teachers|length }} 人）</h3>
+      <table>
+        <thead><tr><th>姓名</th><th>工号</th><th>状态</th></tr></thead>
+        <tbody>
+        {% for t in preview.teachers %}
+          <tr>
+            <td>{{ t.name }}</td>
+            <td>{{ t.number }}</td>
+            <td class="{% if t.status == '已存在' %}status-exist{% else %}status-conflict{% endif %}">{{ t.status }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    <div class="section">
+      <h3><i class="bi bi-people"></i> 学生（{{ preview.students|length }} 人）</h3>
+      <table>
+        <thead><tr><th>#</th><th>学号</th><th>姓名</th><th>性别</th><th>状态</th></tr></thead>
+        <tbody>
+        {% for s in preview.students %}
+          <tr{% if s.conflict %} style="background:#fff0f0"{% endif %}>
+            <td>{{ forloop.counter }}</td>
+            <td>{{ s.number }}</td>
+            <td>{{ s.name }}</td>
+            <td>{{ s.gender }}</td>
+            <td class="{% if s.status == '新建账号' %}status-new{% elif s.conflict %}status-conflict{% else %}status-exist{% endif %}">
+              {{ s.status }}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <h3><i class="bi bi-clipboard-data"></i> 汇总</h3>
+      <div class="summary">
+        课程：{{ preview.summary.course_status }} &nbsp;|&nbsp;
+        教师：{{ preview.summary.teacher_count }} 人 &nbsp;|&nbsp;
+        学生合计：{{ preview.summary.student_total }} 人
+        （<span class="status-new">新建 {{ preview.summary.student_new }}</span>，
+         已存在 {{ preview.summary.student_exist }}{% if preview.summary.student_error %}，
+         <span class="status-conflict">冲突 {{ preview.summary.student_error }}</span>{% endif %}）
+      </div>
+    </div>
+
+    <div class="btn-group">
+      <form method="post" action="{% url 'confirm_import' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-confirm"><i class="bi bi-check-lg"></i> 确认导入</button>
+      </form>
+      <a href="{% url 'import_data' %}" class="btn btn-cancel"><i class="bi bi-x-lg"></i> 取消</a>
+    </div>
+  {% endif %}
+
+</div>
+</body>
+</html>
