@@ -49,11 +49,6 @@
       <i class="bi bi-people"></i> 学生管理
     </button>
   </li>
-  <li class="nav-item" role="presentation">
-    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-settings" type="button">
-      <i class="bi bi-gear"></i> 课程设置
-    </button>
-  </li>
 </ul>
 
 <!-- ════════ Tab 内容 ════════ -->
@@ -312,60 +307,6 @@
   {% endif %}
 </div>
 
-<!-- ═══ Tab 4：课程设置 ═══ -->
-<div class="tab-pane fade" id="tab-settings" role="tabpanel">
-  <h3 class="mb-3">课程设置</h3>
-
-  <div class="card mb-3">
-    <div class="card-header"><strong>课程基本信息</strong></div>
-    <div class="card-body">
-      <form action="{% url 'changeCourseMsgByTeacher' %}" method="post">
-        {% csrf_token %}
-        <input type="hidden" name="courseNumber" value="{{ course.courseNumber }}">
-        <input type="hidden" name="courseName" value="{{ course.courseName }}">
-        <div class="row g-3">
-          <div class="col-md-4">
-            <label class="form-label">学期</label>
-            <input type="text" class="form-control" value="{{ course.courseTerm }}" disabled>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">课程名</label>
-            <input type="text" class="form-control" name="changedCourseName" value="{{ course.courseName }}">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">课程编号</label>
-            <input type="text" class="form-control" name="changedCourseNumber" value="{{ course.courseNumber }}">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">班号</label>
-            <input type="text" class="form-control" value="{{ course.classNumber }}" disabled>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">教师</label>
-            <input type="text" class="form-control" value="{{ course.teachers }}" disabled>
-          </div>
-          <div class="col-md-4 d-flex align-items-end">
-            <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存修改</button>
-          </div>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  {% if user.is_superuser %}
-  <div class="card border-danger">
-    <div class="card-header bg-danger text-white"><strong>危险操作（仅管理员）</strong></div>
-    <div class="card-body">
-      <p>删除课程将同时删除该课程的所有作业、提交记录和文件。此操作<strong>不可恢复</strong>。</p>
-      <button class="btn btn-danger"
-              onclick="delCourse('{{ course.courseNumber|escapejs }}', '{{ course.courseName|escapejs }}')">
-        <i class="bi bi-trash"></i> 删除课程
-      </button>
-    </div>
-  </div>
-  {% endif %}
-</div>
-
 </div><!-- /tab-content -->
 
 <!-- ════════ 模态框：添加实验 ════════ -->
@@ -547,12 +488,6 @@ function toggleSlots(){
 function deleteTask(id, title){
   if(confirm('确定要删除作业「' + title + '」吗？\n该操作会丢失所有提交记录和文件！'))
     location.href = '/deleteTaskByTeacher/' + id + '/';
-}
-
-/* ── 删除课程 ── */
-function delCourse(num, name){
-  if(confirm('确定要删除课程「' + name + '」吗？\n此操作不可恢复！'))
-    location.href = '/deleteCourse/' + encodeURIComponent(num) + '/' + encodeURIComponent(name) + '/';
 }
 
 /* ── 重置密码 ── */

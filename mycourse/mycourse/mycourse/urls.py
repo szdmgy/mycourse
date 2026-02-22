@@ -66,7 +66,6 @@ urlpatterns = [
     path('copyTasks/', views.copyTasks, name='copyTasks'),
     path('getHistoryTasks/<int:courseID>/', views.getHistoryTasks, name='getHistoryTasks'),
     path('download-homework-file/<int:file_id>/', views.download_homework_file, name='download_homework_file'),
-    path('changeCourseMsgByTeacher/', views.changeCourseMsgByTeacher, name='changeCourseMsgByTeacher'),
     path('deleteTaskByTeacher/<str:taskId>/', views.deleteTaskByTeacher, name='deleteTaskByTeacher'),
     path('removeStudent/<int:courseID>/<str:studentNumber>/', views.removeStudent, name='removeStudent'),
     path('addStudentToCourseByTeacher/', views.addStudentToCourseByTeacher, name='addStudentToCourseByTeacher'),
