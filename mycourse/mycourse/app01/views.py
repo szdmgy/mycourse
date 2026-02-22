@@ -100,7 +100,9 @@ class UserProfileEditForm(forms.ModelForm):
         model = UserProfile
         fields = ['name', 'email', 'phone']
         widgets = {
-            'name': forms.TextInput(attrs={'readonly': 'readonly'}),
+            'name': forms.TextInput(attrs={'readonly': 'readonly', 'class': 'form-control'}),
+            'email': forms.EmailInput(attrs={'class': 'form-control'}),
+            'phone': forms.TextInput(attrs={'class': 'form-control'}),
         }
         labels = {
             'name': '姓名',
