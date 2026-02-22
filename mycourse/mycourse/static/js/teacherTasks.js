@@ -99,8 +99,9 @@ $(function () {
         if(sure === false){
             return false;
         }
-        //$(location).attr('href', '/removeStudentFromCourse/' + $(".changeCourseNumber-input").val() + '/' + $(".changeCourseName-input").val() + '/' + $(this).val() + '/');
-        $(location).attr('href', '/removeStudentFromCourse/1/2/3/');
+        var courseID = $(this).data('course-id');
+        var studentNumber = $(this).val();
+        $(location).attr('href', '/removeStudent/' + courseID + '/' + studentNumber + '/');
     });
 
     $("#deleteCourseBtn").click(function () {
