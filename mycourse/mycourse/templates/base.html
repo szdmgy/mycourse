@@ -15,7 +15,7 @@
 <!-- ════════ 顶部导航栏 ════════ -->
 <nav class="navbar navbar-expand-lg navbar-mycourse mb-3">
   <div class="container-fluid" style="max-width:1200px; margin:0 auto;">
-    <a class="navbar-brand" href="{% url 'teacherCourseList' %}">
+    <a class="navbar-brand" href="{% if request.user.is_authenticated %}{% if request.user.is_superuser or request.user.profile.type == 'T' %}{% url 'teacherCourseList' %}{% else %}{% url 'studentCourseList' %}{% endif %}{% else %}/login/{% endif %}">
       <i class="bi bi-journal-check"></i> 实验报告收集系统
     </a>
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">

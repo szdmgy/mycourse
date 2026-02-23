@@ -352,6 +352,9 @@ def teacherCourseList(request):
     from django.db.models import Count
     from collections import OrderedDict
 
+    if not is_teacher_or_admin(request.user):
+        return redirect('studentCourseList')
+
     isManager = request.user.is_superuser
     if isManager:
         courses = models.Course.objects.filter(status='Y')
@@ -1054,6 +1057,9 @@ def confirm_import(request):
 
 @login_required
 def teacher_course_change(request, courseTerm, courseName, classNumber):
+    if not is_teacher_or_admin(request.user):
+        return redirect('studentCourseList')
+
     course = models.Course.objects.filter(
         courseTerm=courseTerm, courseName=courseName, classNumber=classNumber
     ).first()
