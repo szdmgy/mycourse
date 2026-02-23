@@ -1,7 +1,7 @@
 import logging
 import time
 
-logger = logging.getLogger('django.request')
+logger = logging.getLogger('mycourse.access')
 
 
 class RequestLogMiddleware:

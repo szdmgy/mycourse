@@ -1,1 +1,1 @@
-添加请求日志中间件，Waitress 下也能在控制台看到访问记录
+修复 show_routes.py 同时显示 127.0.0.1 和局域网 IP；修复日志 logger 避免干扰 runserver 默认输出

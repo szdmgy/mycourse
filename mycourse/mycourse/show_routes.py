@@ -14,27 +14,29 @@ def get_local_ip():
         s.close()
         return ip
     except Exception:
-        return "127.0.0.1"
+        return None
 
 
-IP = get_local_ip()
-BASE = f"http://{IP}:{PORT}"
+LAN_IP = get_local_ip()
+LOCAL = f"http://127.0.0.1:{PORT}"
 
 ROUTES = [
-    ("登录页",           f"{BASE}/login/"),
-    ("学生 - 课程列表",  f"{BASE}/studentCourseList/"),
-    ("教师 - 课程列表",  f"{BASE}/teacherCourseList/"),
-    ("管理员 - 控制台",  f"{BASE}/manager/"),
-    ("Django Admin",     f"{BASE}/admin/"),
+    ("登录页",           "/login/"),
+    ("学生 - 课程列表",  "/studentCourseList/"),
+    ("教师 - 课程列表",  "/teacherCourseList/"),
+    ("管理员 - 控制台",  "/manager/"),
+    ("Django Admin",     "/admin/"),
 ]
 
 print()
 print("=" * 60)
 print(f"  mycourse 实验报告收集系统  [端口 {PORT}]")
 print("=" * 60)
-print(f"  本机局域网 IP: {IP}")
+print(f"  本机访问: http://127.0.0.1:{PORT}")
+if LAN_IP:
+    print(f"  局域网访问: http://{LAN_IP}:{PORT}")
 print("-" * 60)
-for label, url in ROUTES:
-    print(f"  {label:<18s}  {url}")
+for label, path in ROUTES:
+    print(f"  {label:<18s}  {LOCAL}{path}")
 print("=" * 60)
 print()

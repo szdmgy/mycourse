@@ -151,12 +151,7 @@ LOGGING = {
         },
     },
     'loggers': {
-        'django.request': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'django.server': {
+        'mycourse.access': {
             'handlers': ['console'],
             'level': 'INFO',
             'propagate': False,
