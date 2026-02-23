@@ -1,5 +1,1 @@
-修复学生可访问教师视图的权限漏洞
-
-- base.html logo 链接根据用户角色跳转：教师→教师课程列表，学生→学生课程列表
-- teacherCourseList 视图增加角色检查，学生访问自动重定向到学生页面
-- teacher_course_change 视图增加角色检查，防止学生直接访问课程管理页
+修复 requirements.txt 编码为 UTF-8（原为 UTF-16 导致 pip 报错）
