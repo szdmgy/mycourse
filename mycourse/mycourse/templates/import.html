@@ -76,4 +76,14 @@
     作业导入请到对应课程的「作业管理」页面使用「导入实验」功能。
   </div>
 </div>
+
+<script>
+document.querySelectorAll('form').forEach(function(form) {
+  form.addEventListener('submit', function() {
+    var btn = form.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> 正在解析...';
+  });
+});
+</script>
 {% endblock %}

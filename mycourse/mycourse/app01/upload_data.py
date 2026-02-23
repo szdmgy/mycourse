@@ -1,6 +1,8 @@
 import logging
 import openpyxl
 from django.contrib.auth.models import User
+from django.contrib.auth.hashers import make_password
+from django.db import transaction
 from app01 import models
 
 logger = logging.getLogger('app01')
@@ -74,22 +76,23 @@ def parse_task_excel(upload_file, course):
         return {'error': f'Excel 解析失败：{str(e)}'}
 
 
+@transaction.atomic
 def write_task_import(tasks_data, course):
-    """将预览确认后的作业数据写入数据库（仅写入非重复项）。"""
+    """批量将预览确认后的作业数据写入数据库（仅写入非重复项）。"""
     from datetime import date, timedelta
     default_deadline = date.today() + timedelta(days=120)
-    created = 0
-    for t in tasks_data:
-        if t.get('duplicate'):
-            continue
-        models.Task.objects.create(
+    new_tasks = [
+        models.Task(
             title=t['title'], content=t['content'],
             courseBelongTo=course,
             deadline=default_deadline, display=t['display'],
             fileType=t.get('fileType', '*'),
         )
-        created += 1
-    return {'success': f'导入完成：新增 {created} 个作业'}
+        for t in tasks_data if not t.get('duplicate')
+    ]
+    if new_tasks:
+        models.Task.objects.bulk_create(new_tasks)
+    return {'success': f'导入完成：新增 {len(new_tasks)} 个作业'}
 
 
 def extract_student_data(upload_file):
@@ -216,11 +219,17 @@ def preview_course_import(parsed):
     ).first()
     result['course']['exists'] = existing is not None
 
-    for tname in parsed['teachers']:
-        profile = models.UserProfile.objects.filter(name=tname, type='T').first()
-        if profile:
+    teacher_names = parsed['teachers']
+    teacher_profiles = {
+        p.name: p.user.username
+        for p in models.UserProfile.objects.filter(
+            name__in=teacher_names, type='T'
+        ).select_related('user')
+    }
+    for tname in teacher_names:
+        if tname in teacher_profiles:
             result['teachers'].append({
-                'name': tname, 'number': profile.user.username, 'status': '已存在',
+                'name': tname, 'number': teacher_profiles[tname], 'status': '已存在',
             })
         else:
             result['teachers'].append({
@@ -228,17 +237,23 @@ def preview_course_import(parsed):
             })
 
     excel_numbers = {stu['number'] for stu in parsed['students']}
+    all_numbers = list(excel_numbers)
+    existing_profiles = {
+        p.user.username: p.name
+        for p in models.UserProfile.objects.filter(
+            user__username__in=all_numbers
+        ).select_related('user')
+    }
 
     new_count = 0
     exist_count = 0
     error_count = 0
     for stu in parsed['students']:
-        user = User.objects.filter(username=stu['number']).first()
-        if user:
-            profile = models.UserProfile.objects.filter(user=user).first()
-            if profile and profile.name != stu['name']:
+        if stu['number'] in existing_profiles:
+            db_name = existing_profiles[stu['number']]
+            if db_name != stu['name']:
                 result['students'].append({
-                    **stu, 'status': f'已存在(姓名不一致: 库中={profile.name})',
+                    **stu, 'status': f'已存在(姓名不一致: 库中={db_name})',
                     'conflict': True,
                 })
                 error_count += 1
@@ -251,8 +266,7 @@ def preview_course_import(parsed):
 
     removed_count = 0
     if existing:
-        current_student_profiles = existing.members.filter(type='S')
-        for profile in current_student_profiles:
+        for profile in existing.members.filter(type='S').select_related('user'):
             if profile.user.username not in excel_numbers:
                 result['removed_students'].append({
                     'number': profile.user.username,
@@ -289,6 +303,7 @@ def preview_course_import(parsed):
 
 # ═══════════════════════ 第三层：写入 DB ═══════════════════════
 
+@transaction.atomic
 def write_course_data(parsed):
     """将解析后的课程数据写入数据库，支持新增和更新名单（含移除退出学生）"""
     course_obj, created = models.Course.objects.get_or_create(
@@ -309,45 +324,61 @@ def write_course_data(parsed):
     else:
         student_list = parsed.get('students', [])
 
-    excel_numbers = set()
     write_student_users(student_list)
-    for stu in student_list:
-        number = stu[0] if isinstance(stu, list) else stu['number']
-        excel_numbers.add(str(number))
-        profile = models.UserProfile.objects.filter(user__username=number).first()
-        if profile:
-            course_obj.members.add(profile)
+
+    numbers = [stu[0] if isinstance(stu, list) else stu['number'] for stu in student_list]
+    student_profiles = list(models.UserProfile.objects.filter(user__username__in=numbers))
+    course_obj.members.add(*student_profiles)
 
     if not created:
-        for profile in course_obj.members.filter(type='S'):
-            if profile.user.username not in excel_numbers:
-                course_obj.members.remove(profile)
+        to_remove = list(
+            course_obj.members.filter(type='S').exclude(user__username__in=numbers)
+        )
+        if to_remove:
+            course_obj.members.remove(*to_remove)
 
     teachers = parsed['teachers']
     if isinstance(teachers, str):
         teachers = [t.strip() for t in teachers.split(',') if t.strip()]
-    for tname in teachers:
-        profile = models.UserProfile.objects.filter(name=tname).first()
-        if profile:
-            course_obj.members.add(profile)
+    teacher_profiles = list(models.UserProfile.objects.filter(name__in=teachers, type='T'))
+    if teacher_profiles:
+        course_obj.members.add(*teacher_profiles)
 
     return course_obj
 
 
+@transaction.atomic
 def write_student_users(student_list):
-    """创建学生账号（已存在则跳过）"""
+    """批量创建学生账号（已存在则跳过）"""
+    normalized = []
     for stu in student_list:
         if isinstance(stu, dict):
-            number, name, gender = stu['number'], stu['name'], stu.get('gender', '男')
+            normalized.append((str(stu['number']), stu['name'], stu.get('gender', '男')))
         else:
-            number, name, gender = stu[0], stu[1], stu[2] if len(stu) > 2 else '男'
+            normalized.append((str(stu[0]), stu[1], stu[2] if len(stu) > 2 else '男'))
 
-        if not User.objects.filter(username=number).exists():
-            user_obj = User.objects.create_user(username=number, password='szu' + number[-6:])
-            models.UserProfile.objects.create(
-                name=name, user=user_obj, type='S',
-                gender='M' if gender == '男' else 'F',
-            )
+    all_numbers = [n for n, _, _ in normalized]
+    existing = set(User.objects.filter(username__in=all_numbers).values_list('username', flat=True))
+
+    data_map = {n: (name, gender) for n, name, gender in normalized if n not in existing}
+    if not data_map:
+        return
+
+    new_users = [
+        User(username=n, password=make_password('szu' + n[-6:]))
+        for n in data_map
+    ]
+    User.objects.bulk_create(new_users)
+
+    created_users = User.objects.filter(username__in=data_map.keys())
+    new_profiles = [
+        models.UserProfile(
+            user=u, name=data_map[u.username][0], type='S',
+            gender='M' if data_map[u.username][1] == '男' else 'F',
+        )
+        for u in created_users
+    ]
+    models.UserProfile.objects.bulk_create(new_profiles)
 
 
 def parse_teacher_excel(upload_file):
@@ -378,15 +409,22 @@ def parse_teacher_excel(upload_file):
 def preview_teacher_import(parsed):
     """对比 DB 标注每个教师的状态"""
     result = {'teachers': [], 'summary': {}}
+    all_numbers = [t['number'] for t in parsed['teachers']]
+    existing_profiles = {
+        p.user.username: p.name
+        for p in models.UserProfile.objects.filter(
+            user__username__in=all_numbers
+        ).select_related('user')
+    }
+
     new_count = 0
     exist_count = 0
     for t in parsed['teachers']:
-        user = User.objects.filter(username=t['number']).first()
-        if user:
-            profile = models.UserProfile.objects.filter(user=user).first()
-            if profile and profile.name != t['name']:
+        if t['number'] in existing_profiles:
+            db_name = existing_profiles[t['number']]
+            if db_name != t['name']:
                 result['teachers'].append({
-                    **t, 'status': f'已存在(姓名不一致: 库中={profile.name})', 'conflict': True,
+                    **t, 'status': f'已存在(姓名不一致: 库中={db_name})', 'conflict': True,
                 })
             else:
                 result['teachers'].append({**t, 'status': '已存在', 'conflict': False})
@@ -402,22 +440,38 @@ def preview_teacher_import(parsed):
     return result
 
 
+@transaction.atomic
 def write_teacher_users(teacher_list):
-    """创建教师账号（已存在则跳过）"""
+    """批量创建教师账号（已存在则跳过）"""
+    normalized = []
     for teacher in teacher_list:
         if isinstance(teacher, dict):
-            number, name, gender = teacher['number'], teacher['name'], teacher.get('gender', '男')
+            normalized.append((str(teacher['number']), teacher['name'], teacher.get('gender', '男')))
         else:
-            number, name, gender = teacher[0], teacher[1], teacher[2] if len(teacher) > 2 else '男'
+            normalized.append((str(teacher[0]), teacher[1], teacher[2] if len(teacher) > 2 else '男'))
 
-        if not User.objects.filter(username=number).exists():
-            User.objects.create_user(username=number, password='szu' + number)
-            models.UserProfile.objects.create(
-                name=name,
-                user=User.objects.filter(username=number).first(),
-                type='T',
-                gender='M' if gender == '男' else 'F',
-            )
+    all_numbers = [n for n, _, _ in normalized]
+    existing = set(User.objects.filter(username__in=all_numbers).values_list('username', flat=True))
+
+    data_map = {n: (name, gender) for n, name, gender in normalized if n not in existing}
+    if not data_map:
+        return
+
+    new_users = [
+        User(username=n, password=make_password('szu' + n))
+        for n in data_map
+    ]
+    User.objects.bulk_create(new_users)
+
+    created_users = User.objects.filter(username__in=data_map.keys())
+    new_profiles = [
+        models.UserProfile(
+            user=u, name=data_map[u.username][0], type='T',
+            gender='M' if data_map[u.username][1] == '男' else 'F',
+        )
+        for u in created_users
+    ]
+    models.UserProfile.objects.bulk_create(new_profiles)
 
 
 def write_task_data(tasks):

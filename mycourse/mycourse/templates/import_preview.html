@@ -315,6 +315,13 @@ document.querySelectorAll('[data-bs-toggle="collapse"]').forEach(function(header
     chevron.classList.replace('bi-chevron-down', 'bi-chevron-up');
   });
 });
+document.querySelectorAll('.action-bar form').forEach(function(form) {
+  form.addEventListener('submit', function() {
+    var btn = form.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> 正在处理...';
+  });
+});
 </script>
 {% endif %}
 {% endblock %}
