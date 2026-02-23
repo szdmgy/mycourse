@@ -6,11 +6,9 @@
 {% block extra_css %}
 <style>
   .task-container { max-width: 860px; margin: 0 auto; }
-  .slot-card { border: 2px dashed #dee2e6; border-radius: 8px; padding: 20px; margin-bottom: 15px; transition: border-color .2s; }
-  .slot-card:hover { border-color: #1a6b9b; }
-  .slot-card.uploaded { border-color: #28a745; border-style: solid; background: #f8fff8; }
-  .slot-header { font-weight: 600; margin-bottom: 10px; }
-  .slot-type { font-size: .8rem; color: #888; }
+  .upload-card { border: 2px dashed #dee2e6; border-radius: 8px; padding: 20px; transition: border-color .2s; }
+  .upload-card:hover { border-color: #1a6b9b; }
+  .upload-card.uploaded { border-color: #28a745; border-style: solid; background: #f8fff8; }
   .uploaded-file { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #e8f5e9; border-radius: 6px; margin-top: 10px; }
   .uploaded-file i { color: #28a745; font-size: 1.1rem; }
 </style>
@@ -41,38 +39,36 @@
     </div>
   </div>
 
-  <h3 class="mb-3"><i class="bi bi-paperclip"></i> 附件上传（共 {{ task.maxFiles }} 个）</h3>
+  <h3 class="mb-3"><i class="bi bi-paperclip"></i> 附件上传</h3>
 
-  {% for slot in slots %}
-  <div class="slot-card {% if slot.fileId %}uploaded{% endif %}" id="slot-card-{{ slot.slot }}">
-    <div class="d-flex justify-content-between align-items-center slot-header">
-      <span>
-        <i class="bi bi-file-earmark"></i> 附件{{ slot.slot }}：{{ slot.name }}
+  <div class="upload-card {% if hw_file %}uploaded{% endif %}" id="upload-card">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <span class="fw-bold">
+        <i class="bi bi-file-earmark"></i> 提交附件
       </span>
-      <span class="slot-type">
-        {% if slot.type == '*' %}不限类型{% else %}仅 {{ slot.type }}{% endif %}
+      <span style="font-size:.8rem; color:#888;">
+        {% if task.fileType == '*' %}不限类型{% else %}仅 {{ task.fileType }}{% endif %}
       </span>
     </div>
 
-    <form id="upload-form-{{ slot.slot }}" class="d-flex align-items-center gap-2 flex-wrap">
+    <form id="upload-form" class="d-flex align-items-center gap-2 flex-wrap">
       {% csrf_token %}
-      <input type="file" name="file" id="file-{{ slot.slot }}" class="form-control form-control-sm"
+      <input type="file" name="file" id="fileInput" class="form-control form-control-sm"
              style="max-width:350px;"
-             {% if slot.type != '*' %}accept="{{ slot.type }}"{% endif %}>
-      <button type="button" class="btn btn-outline-primary btn-sm"
-              onclick="uploadSlot({{ task.id }}, {{ slot.slot }})">
+             {% if task.fileType != '*' %}accept="{{ task.fileType }}"{% endif %}>
+      <button type="button" class="btn btn-outline-primary btn-sm" onclick="doUpload()">
         <i class="bi bi-cloud-upload"></i> 上传
       </button>
     </form>
 
-    <div id="status-{{ slot.slot }}">
-      {% if slot.fileId %}
+    <div id="upload-status">
+      {% if hw_file %}
         <div class="uploaded-file">
           <i class="bi bi-check-circle-fill"></i>
-          <a href="{% url 'download_homework_file' slot.fileId %}" class="text-decoration-none">
-            {{ slot.originalName }}
+          <a href="{% url 'download_homework_file' hw_file.id %}" class="text-decoration-none">
+            {{ hw_file.standardName }}
           </a>
-          <span style="font-size:.75rem; color:#888;">（点击下载）</span>
+          <span style="font-size:.75rem; color:#888;">（点击下载 | 重新上传将覆盖）</span>
         </div>
       {% else %}
         <div class="mt-2" style="font-size:.85rem; color:#999;">
@@ -81,23 +77,20 @@
       {% endif %}
     </div>
   </div>
-  {% endfor %}
 
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-function uploadSlot(taskId, slot) {
-  var fileInput = document.getElementById('file-' + slot);
+function doUpload() {
+  var fileInput = document.getElementById('fileInput');
   if (!fileInput.files.length) {
     alert('请先选择文件');
     return;
   }
-  var form = document.getElementById('upload-form-' + slot);
-  var formData = new FormData(form);
-  formData.append('taskId', taskId);
-  formData.append('slot', slot);
+  var formData = new FormData(document.getElementById('upload-form'));
+  formData.append('taskId', '{{ task.id }}');
 
   $.ajax({
     url: '{% url "upload_file" %}',
@@ -108,7 +101,7 @@ function uploadSlot(taskId, slot) {
     processData: false,
     success: function(data) {
       if (data === 'YES') {
-        alert('附件' + slot + ' 上传成功！');
+        alert('上传成功！');
         window.location.reload();
       } else {
         alert(data || '上传失败');

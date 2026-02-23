@@ -109,15 +109,8 @@ class Task(models.Model):
     courseBelongTo = models.ForeignKey(Course, on_delete=models.CASCADE, verbose_name='所属课程')
     deadline = models.DateField('截止日期', default=default_deadline)
 
-    maxFiles = models.IntegerField('最大附件数', default=1,
-                                   help_text='允许上传的附件数量（1~3）')
-    slot1Name = models.CharField('附件1名称', max_length=50, default='实验报告')
-    slot1Type = models.CharField('附件1类型', max_length=50, default='*',
-                                 help_text='允许的文件类型，如 .docx,.pdf 或 * 表示不限')
-    slot2Name = models.CharField('附件2名称', max_length=50, blank=True, default='')
-    slot2Type = models.CharField('附件2类型', max_length=50, blank=True, default='*')
-    slot3Name = models.CharField('附件3名称', max_length=50, blank=True, default='')
-    slot3Type = models.CharField('附件3类型', max_length=50, blank=True, default='*')
+    fileType = models.CharField('允许的文件类型', max_length=50, default='*',
+                                help_text='如 .docx,.pdf,.zip 或 * 表示不限')
 
     class Meta:
         verbose_name = "作业"
@@ -145,22 +138,30 @@ class Homework(models.Model):
 
 
 class HomeworkFile(models.Model):
-    homework = models.ForeignKey(Homework, on_delete=models.CASCADE, related_name='files')
-    slot = models.IntegerField('附件序号', help_text='对应附件 1/2/3')
+    homework = models.OneToOneField(Homework, on_delete=models.CASCADE, related_name='file')
     filePath = models.CharField('文件路径', max_length=255, default='')
     originalName = models.CharField('原始文件名', max_length=200, default='')
 
     class Meta:
         verbose_name = "提交文件"
-        constraints = [
-            models.UniqueConstraint(
-                fields=['homework', 'slot'],
-                name='unique_homework_slot'
-            )
-        ]
+
+    @property
+    def standardName(self):
+        """返回标准化文件名（从 filePath 提取）"""
+        import os
+        return os.path.basename(self.filePath) if self.filePath else self.originalName
+
+    @property
+    def absPath(self):
+        """返回绝对路径（filePath 存的是相对于 BASE_DIR 的路径）"""
+        import os
+        if os.path.isabs(self.filePath):
+            return self.filePath
+        from django.conf import settings
+        return os.path.join(settings.BASE_DIR, self.filePath)
 
     def __str__(self):
-        return f'{self.homework} slot{self.slot}: {self.originalName}'
+        return f'{self.homework}: {self.originalName}'
 
 
 

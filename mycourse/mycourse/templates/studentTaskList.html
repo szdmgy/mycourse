@@ -46,8 +46,6 @@
         <td>
           {% if r.status == 'submitted' %}
             <span class="badge badge-submitted"><i class="bi bi-check-circle"></i> {{ r.status_text }}</span>
-          {% elif r.status == 'partial' %}
-            <span class="badge badge-partial"><i class="bi bi-exclamation-circle"></i> {{ r.status_text }}</span>
           {% elif r.status == 'pending' %}
             <span class="badge badge-pending"><i class="bi bi-clock"></i> {{ r.status_text }}</span>
           {% elif r.status == 'delay_submitted' %}

@@ -40,8 +40,6 @@ urlpatterns = [
     path('download-file',views.download_file,name='download_file'),
     #管理员操作
     path('manager/', views.manager, name='manager'),
-    path('upload-files/<str:type>/', views.file_upload_view, name='file_upload'),
-    path('process-files/', views.process_files, name='process_files'),
     path('manager/user/', views.user_list, name='user_list'),
     path('manager/removeuser/<str:username>/', views.remove_user, name='removeUser'),
 

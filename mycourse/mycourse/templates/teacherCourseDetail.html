@@ -8,7 +8,6 @@
   .nav-tabs .nav-link { font-size: .95rem; }
   .accordion-button { font-size: .9rem; padding: .6rem 1rem; }
   .accordion-body { font-size: .9rem; }
-  .slot-row { transition: all .2s; }
 </style>
 {% endblock %}
 
@@ -80,7 +79,7 @@
         <tr>
           <th style="width:40px;">#</th>
           <th>标题</th>
-          <th>附件数</th>
+          <th>文件类型</th>
           <th>显示</th>
           <th>截止日期</th>
           <th>已交/总人数</th>
@@ -92,7 +91,7 @@
         <tr>
           <td>{{ forloop.counter }}</td>
           <td><strong>{{ td.task.title }}</strong></td>
-          <td>{{ td.task.maxFiles }}</td>
+          <td><code>{{ td.task.fileType }}</code></td>
           <td>
             {% if td.task.display %}
               <span class="badge bg-success">显示</span>
@@ -159,6 +158,7 @@
             <table class="table table-sm table-hover align-middle">
               <thead class="table-light">
                 <tr><th>#</th><th>学号</th><th>姓名</th><th>性别</th><th>提交时间</th><th>附件</th><th>状态</th><th>选择</th></tr>
+
               </thead>
               <tbody>
                 {% for rec in td.submitted %}
@@ -168,7 +168,7 @@
                   <td>{{ rec.name }}</td>
                   <td>{% if rec.gender == 'M' %}男{% else %}女{% endif %}</td>
                   <td>{{ rec.time|date:"Y-m-d H:i" }}</td>
-                  <td>{{ rec.file_count }}/{{ td.task.maxFiles }}</td>
+                  <td>{% if rec.has_file %}<span class="badge bg-success">已上传</span>{% else %}<span class="badge bg-secondary">无文件</span>{% endif %}</td>
                   <td>{% if rec.delay %}<span class="badge badge-delay">延期</span>{% else %}<span class="badge badge-submitted">正常</span>{% endif %}</td>
                   <td><input type="checkbox" class="form-check-input chk-{{ td.task.id }}" data-number="{{ rec.number }}"></td>
                 </tr>
@@ -335,44 +335,8 @@
               <input type="date" class="form-control" name="deadline" id="addTaskDeadline">
             </div>
             <div class="col-md-6">
-              <label class="form-label">最大附件数</label>
-              <select class="form-select" name="maxFiles" id="addTaskMaxFiles" onchange="toggleSlots()">
-                <option value="1" selected>1</option>
-                <option value="2">2</option>
-                <option value="3">3</option>
-              </select>
-            </div>
-          </div>
-          <hr>
-          <h6>附件配置</h6>
-          <div class="row g-3" id="slot1Row">
-            <div class="col-md-6">
-              <label class="form-label">附件1名称 <span class="text-danger">*</span></label>
-              <input type="text" class="form-control" name="slot1Name" value="实验报告" required>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">附件1类型</label>
-              <input type="text" class="form-control" name="slot1Type" value="*" placeholder="* 为不限">
-            </div>
-          </div>
-          <div class="row g-3 mt-1 slot-row" id="slot2Row" style="display:none;">
-            <div class="col-md-6">
-              <label class="form-label">附件2名称</label>
-              <input type="text" class="form-control" name="slot2Name">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">附件2类型</label>
-              <input type="text" class="form-control" name="slot2Type" value="*" placeholder="* 为不限">
-            </div>
-          </div>
-          <div class="row g-3 mt-1 slot-row" id="slot3Row" style="display:none;">
-            <div class="col-md-6">
-              <label class="form-label">附件3名称</label>
-              <input type="text" class="form-control" name="slot3Name">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">附件3类型</label>
-              <input type="text" class="form-control" name="slot3Type" value="*" placeholder="* 为不限">
+              <label class="form-label">允许的文件类型</label>
+              <input type="text" class="form-control" name="fileType" value="*" placeholder="如 .docx,.pdf 或 * 不限">
             </div>
           </div>
         </div>
@@ -390,24 +354,34 @@
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="bi bi-arrow-repeat"></i> 从历史复用实验</h5>
+        <h5 class="modal-title" id="reuseModalTitle"><i class="bi bi-arrow-repeat"></i> 从历史「{{ course.courseName }}」复用实验</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <div class="mb-3">
-          <input type="text" class="form-control" id="reuseFilter" placeholder="搜索课程名或学期..." oninput="filterHistory()">
+        <!-- 步骤1：选班级 -->
+        <div id="reuse-step-class">
+          <p class="text-muted mb-2" style="font-size:.85rem;">请选择要复用的历史班级：</p>
+          <div id="historyClassList"></div>
         </div>
-        <div id="historyList">
-          <div class="text-center py-3">
-            <div class="spinner-border text-primary" role="status"></div>
-            <p class="mt-2">加载中...</p>
+        <!-- 步骤2：选实验 -->
+        <div id="reuse-step-tasks" style="display:none;">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="text-muted" style="font-size:.85rem;" id="reuseClassInfo"></span>
+            <span>
+              <a href="javascript:void(0)" class="text-primary me-2" style="font-size:.85rem;" onclick="toggleAllReuse(true)">全选新增</a>
+              <a href="javascript:void(0)" class="text-danger" style="font-size:.85rem;" onclick="toggleAllReuse(false)">全不选</a>
+            </span>
           </div>
+          <div id="historyTaskList"></div>
         </div>
       </div>
       <div class="modal-footer">
-        <span id="reuseCount" class="me-auto text-muted">已选 0 项</span>
+        <button type="button" class="btn btn-outline-secondary" id="reuseBackBtn" onclick="reuseGoBack()" style="display:none;">
+          <i class="bi bi-arrow-left"></i> 返回选班级
+        </button>
+        <span id="reuseCount" class="me-auto text-muted"></span>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-        <button type="button" class="btn btn-primary" onclick="submitReuse()">
+        <button type="button" class="btn btn-primary" id="reuseSubmitBtn" onclick="submitReuse()" style="display:none;">
           <i class="bi bi-check-lg"></i> 导入到当前课程
         </button>
       </div>
@@ -428,8 +402,8 @@
         <!-- 步骤 1：上传 -->
         <div id="import-step-upload">
           <p class="text-muted" style="font-size:.85rem;">
-            Excel 格式：标题 | 内容 | 附件1名称 | 附件1类型 | 附件2名称 | 附件2类型 | 附件3名称 | 附件3类型 | 显示(Y/N)<br>
-            其中附件1为必填，附件2/3选填；截止日期自动设为导入日 + 120 天。
+            Excel 格式：标题 | 内容 | 文件类型(可选, * 为不限) | 显示(Y/N, 可选)<br>
+            截止日期自动设为导入日 + 120 天。
           </p>
           <input type="file" id="importTaskFile" class="form-control" accept=".xls,.xlsx,.xlsm">
           <div id="importTaskError" class="text-danger mt-2" style="display:none;"></div>
@@ -440,7 +414,7 @@
           <div class="table-responsive">
             <table class="table table-sm table-hover">
               <thead>
-                <tr><th>#</th><th>标题</th><th>内容</th><th>附件</th><th>显示</th><th>状态</th></tr>
+                <tr><th>#</th><th>标题</th><th>内容</th><th>文件类型</th><th>显示</th><th>状态</th></tr>
               </thead>
               <tbody id="importPreviewBody"></tbody>
             </table>
@@ -476,13 +450,6 @@ var COURSE_ID = {{ course.id }};
   var el = document.getElementById('addTaskDeadline');
   if (el && !el.value) el.value = d.toISOString().split('T')[0];
 })();
-
-/* ── 添加实验：切换附件字段 ── */
-function toggleSlots(){
-  var n = parseInt(document.getElementById('addTaskMaxFiles').value);
-  document.getElementById('slot2Row').style.display = n >= 2 ? '' : 'none';
-  document.getElementById('slot3Row').style.display = n >= 3 ? '' : 'none';
-}
 
 /* ── 删除作业 ── */
 function deleteTask(id, title){
@@ -529,49 +496,86 @@ function dlHomework(title, tid){
   xhr.send(JSON.stringify({taskName:title, taskId:tid, studentNumberList:list}));
 }
 
-/* ── 历史复用 ── */
+/* ── 历史复用（两步：选班级 → 选实验） ── */
 var _histData = [];
+
 function loadHistoryTasks(){
-  document.getElementById('historyList').innerHTML =
+  document.getElementById('reuse-step-class').style.display = '';
+  document.getElementById('reuse-step-tasks').style.display = 'none';
+  document.getElementById('reuseBackBtn').style.display = 'none';
+  document.getElementById('reuseSubmitBtn').style.display = 'none';
+  document.getElementById('reuseCount').textContent = '';
+  document.getElementById('historyClassList').innerHTML =
     '<div class="text-center py-3"><div class="spinner-border text-primary"></div><p class="mt-2">加载中...</p></div>';
+
   $.getJSON('/getHistoryTasks/' + COURSE_ID + '/', function(data){
     _histData = data.courses || [];
-    renderHist(_histData);
-  }).fail(function(){ document.getElementById('historyList').innerHTML = '<p class="text-danger">加载失败</p>'; });
+    renderClassList(_histData);
+  }).fail(function(){
+    document.getElementById('historyClassList').innerHTML = '<p class="text-danger">加载失败</p>';
+  });
 }
 
-function renderHist(courses){
+function renderClassList(courses){
   if(!courses.length){
-    document.getElementById('historyList').innerHTML = '<p class="text-muted text-center">没有可复用的历史实验</p>';
+    document.getElementById('historyClassList').innerHTML =
+      '<p class="text-muted text-center">没有同名历史课程可复用</p>';
     return;
   }
   var h = '';
-  courses.forEach(function(c){
-    h += '<div class="card mb-2 hist-course" data-term="'+c.courseTerm+'" data-name="'+c.courseName+'">';
-    h += '<div class="card-header py-1" style="font-size:.85rem;"><strong>'+c.courseName+'</strong>（'+c.classNumber+'班）— '+c.courseTerm+'</div>';
-    h += '<div class="card-body py-2"><div class="list-group list-group-flush">';
-    c.tasks.forEach(function(t){
-      h += '<label class="list-group-item d-flex align-items-center gap-2 py-1">';
-      h += '<input type="checkbox" class="form-check-input reuse-chk" value="'+t.id+'" onchange="updateReuseCount()">';
-      h += '<span>'+t.title+' <span class="text-muted" style="font-size:.75rem;">(附件'+t.maxFiles+'个)</span></span>';
-      h += '</label>';
-    });
-    h += '</div></div></div>';
+  courses.forEach(function(c, idx){
+    h += '<div class="card mb-2" style="cursor:pointer;" onclick="selectHistClass('+idx+')">';
+    h += '<div class="card-body py-3 d-flex justify-content-between align-items-center">';
+    h += '<span><i class="bi bi-folder2-open me-2"></i><strong>'+c.classNumber+'班</strong> — '+c.courseTerm+'</span>';
+    h += '<span class="badge bg-primary">'+c.tasks.length+' 个实验 <i class="bi bi-chevron-right"></i></span>';
+    h += '</div></div>';
   });
-  document.getElementById('historyList').innerHTML = h;
+  document.getElementById('historyClassList').innerHTML = h;
 }
 
-function filterHistory(){
-  var kw = document.getElementById('reuseFilter').value.toLowerCase();
-  document.querySelectorAll('.hist-course').forEach(function(el){
-    var ok = el.dataset.term.toLowerCase().includes(kw) || el.dataset.name.toLowerCase().includes(kw);
-    el.style.display = ok ? '' : 'none';
+function selectHistClass(idx){
+  var c = _histData[idx];
+  document.getElementById('reuse-step-class').style.display = 'none';
+  document.getElementById('reuse-step-tasks').style.display = '';
+  document.getElementById('reuseBackBtn').style.display = '';
+  document.getElementById('reuseSubmitBtn').style.display = '';
+  document.getElementById('reuseClassInfo').textContent =
+    '来源：' + c.classNumber + '班 — ' + c.courseTerm;
+
+  var h = '<div class="list-group list-group-flush">';
+  c.tasks.forEach(function(t){
+    var dup = t.duplicate;
+    h += '<label class="list-group-item d-flex align-items-center gap-2 py-1' + (dup ? ' text-muted' : '') + '">';
+    if(dup){
+      h += '<input type="checkbox" class="form-check-input reuse-chk" value="'+t.id+'" disabled>';
+      h += '<span><s>'+t.title+'</s> <span class="badge bg-warning text-dark" style="font-size:.7rem;">已存在</span></span>';
+    } else {
+      h += '<input type="checkbox" class="form-check-input reuse-chk" value="'+t.id+'" checked onchange="updateReuseCount()">';
+      h += '<span>'+t.title + (t.fileType && t.fileType!='*' ? ' <span class="text-muted" style="font-size:.75rem;">('+t.fileType+')</span>' : '') + '</span>';
+    }
+    h += '</label>';
   });
+  h += '</div>';
+  document.getElementById('historyTaskList').innerHTML = h;
+  updateReuseCount();
+}
+
+function reuseGoBack(){
+  document.getElementById('reuse-step-class').style.display = '';
+  document.getElementById('reuse-step-tasks').style.display = 'none';
+  document.getElementById('reuseBackBtn').style.display = 'none';
+  document.getElementById('reuseSubmitBtn').style.display = 'none';
+  document.getElementById('reuseCount').textContent = '';
+}
+
+function toggleAllReuse(checked){
+  document.querySelectorAll('.reuse-chk:not(:disabled)').forEach(function(c){ c.checked = checked; });
+  updateReuseCount();
 }
 
 function updateReuseCount(){
   var n = document.querySelectorAll('.reuse-chk:checked').length;
-  document.getElementById('reuseCount').textContent = '已选 ' + n + ' 项';
+  document.getElementById('reuseCount').textContent = n ? '已选 ' + n + ' 项' : '';
 }
 
 function submitReuse(){
@@ -641,9 +645,7 @@ function renderTaskPreview(data){
   var tbody = document.getElementById('importPreviewBody');
   tbody.innerHTML = '';
   tasks.forEach(function(t, i){
-    var slots = t.slot1Name + (t.slot1Type!='*' ? '('+t.slot1Type+')' : '');
-    if(t.slot2Name) slots += '、' + t.slot2Name + (t.slot2Type ? '('+t.slot2Type+')' : '');
-    if(t.slot3Name) slots += '、' + t.slot3Name + (t.slot3Type ? '('+t.slot3Type+')' : '');
+    var ft = t.fileType || '*';
     var statusBadge = t.duplicate
       ? '<span class="badge bg-warning">重复-跳过</span>'
       : '<span class="badge bg-success">新增</span>';
@@ -651,7 +653,7 @@ function renderTaskPreview(data){
       '<td>' + (i+1) + '</td>' +
       '<td>' + t.title + '</td>' +
       '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + t.content + '</td>' +
-      '<td>' + slots + '</td>' +
+      '<td>' + ft + '</td>' +
       '<td>' + (t.display ? '是' : '否') + '</td>' +
       '<td>' + statusBadge + '</td></tr>';
     tbody.innerHTML += row;

@@ -42,7 +42,8 @@
 {% if preview %}
   <h2 class="mb-3"><i class="bi bi-eye"></i> 导入预览 — 请确认后再写入</h2>
 
-  <!-- 课程信息 -->
+  {% if datatype == 'course' %}
+  <!-- ═══ 课程导入预览 ═══ -->
   <div class="card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center">
       <strong><i class="bi bi-journal-text"></i> 课程信息</strong>
@@ -60,7 +61,6 @@
     </div>
   </div>
 
-  <!-- 教师 -->
   {% if preview.teachers %}
   <div class="card mb-3">
     <div class="card-header">
@@ -85,7 +85,6 @@
   </div>
   {% endif %}
 
-  <!-- 学生 -->
   <div class="card mb-3">
     <div class="card-header">
       <strong><i class="bi bi-people"></i> 学生（{{ preview.students|length }} 人）</strong>
@@ -112,7 +111,6 @@
     </div>
   </div>
 
-  <!-- 汇总 -->
   <div class="card mb-3">
     <div class="card-header"><strong><i class="bi bi-clipboard-data"></i> 汇总</strong></div>
     <div class="card-body">
@@ -126,6 +124,46 @@
       </div>
     </div>
   </div>
+
+  {% elif datatype == 'teacher' %}
+  <!-- ═══ 教师导入预览 ═══ -->
+  <div class="card mb-3">
+    <div class="card-header">
+      <strong><i class="bi bi-person-badge"></i> 教师列表（{{ preview.teachers|length }} 人）</strong>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light"><tr><th>#</th><th>工号</th><th>姓名</th><th>性别</th><th>状态</th></tr></thead>
+          <tbody>
+          {% for t in preview.teachers %}
+            <tr{% if t.conflict %} class="table-danger"{% endif %}>
+              <td>{{ forloop.counter }}</td>
+              <td>{{ t.number }}</td>
+              <td>{{ t.name }}</td>
+              <td>{{ t.gender }}</td>
+              <td class="{% if t.status == '新建账号' %}status-new{% elif t.conflict %}status-conflict{% else %}status-exist{% endif %}">
+                {{ t.status }}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header"><strong><i class="bi bi-clipboard-data"></i> 汇总</strong></div>
+    <div class="card-body">
+      <div class="summary-box">
+        教师合计：{{ preview.summary.total }} 人
+        （<span class="status-new">新建 {{ preview.summary.new }}</span>，
+         已存在 {{ preview.summary.exist }}）
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
   <!-- 操作按钮 -->
   <div class="d-flex gap-3 justify-content-center mt-4">

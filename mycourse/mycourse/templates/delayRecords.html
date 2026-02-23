@@ -60,8 +60,6 @@
             <span class="badge badge-delay">{{ record.status }}</span>
           {% elif record.status == '未提交' %}
             <span class="badge badge-overdue">{{ record.status }}</span>
-          {% else %}
-            <span class="badge badge-partial">{{ record.status }}</span>
           {% endif %}
         </td>
       </tr>

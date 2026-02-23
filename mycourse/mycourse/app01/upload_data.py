@@ -37,8 +37,7 @@ def extract_course_data(upload_file):
 
 def parse_task_excel(upload_file, course):
     """纯解析作业 Excel，返回预览数据（不写入数据库）。
-    Excel 列：A标题 B内容 C附件1名称 D附件1类型 E附件2名称 F附件2类型
-              G附件3名称 H附件3类型 I显示(Y/N)
+    Excel 列：A标题  B内容  C文件类型(可选)  D显示(Y/N, 可选)
     """
     try:
         wb = openpyxl.load_workbook(upload_file)
@@ -56,27 +55,14 @@ def parse_task_excel(upload_file, course):
             title = str(title).strip()
             content = str(content).strip()
 
-            slot1Name = ws.cell(row, 3).value or ''
-            slot1Type = ws.cell(row, 4).value or '*'
-            slot2Name = ws.cell(row, 5).value or ''
-            slot2Type = ws.cell(row, 6).value or ''
-            slot3Name = ws.cell(row, 7).value or ''
-            slot3Type = ws.cell(row, 8).value or ''
-            display_val = ws.cell(row, 9).value or ''
+            file_type = ws.cell(row, 3).value or '*'
+            file_type = str(file_type).strip()
+            display_val = ws.cell(row, 4).value or ''
             display = False if str(display_val).strip().upper() == 'N' else True
-
-            max_files = 1
-            if slot2Name:
-                max_files = 2
-            if slot3Name:
-                max_files = 3
 
             tasks.append({
                 'title': title, 'content': content,
-                'maxFiles': max_files, 'display': display,
-                'slot1Name': slot1Name, 'slot1Type': slot1Type,
-                'slot2Name': slot2Name, 'slot2Type': slot2Type,
-                'slot3Name': slot3Name, 'slot3Type': slot3Type,
+                'fileType': file_type, 'display': display,
                 'duplicate': title in existing_titles,
             })
 
@@ -100,10 +86,7 @@ def write_task_import(tasks_data, course):
             title=t['title'], content=t['content'],
             courseBelongTo=course,
             deadline=default_deadline, display=t['display'],
-            maxFiles=t['maxFiles'],
-            slot1Name=t.get('slot1Name', ''), slot1Type=t.get('slot1Type', '*'),
-            slot2Name=t.get('slot2Name', ''), slot2Type=t.get('slot2Type', ''),
-            slot3Name=t.get('slot3Name', ''), slot3Type=t.get('slot3Type', ''),
+            fileType=t.get('fileType', '*'),
         )
         created += 1
     return {'success': f'导入完成：新增 {created} 个作业'}
@@ -331,6 +314,58 @@ def write_student_users(student_list):
                 name=name, user=user_obj, type='S',
                 gender='M' if gender == '男' else 'F',
             )
+
+
+def parse_teacher_excel(upload_file):
+    """纯解析教师 Excel（不访问 DB）。格式：A工号 B姓名 C性别"""
+    try:
+        wb = openpyxl.load_workbook(upload_file)
+        ws = wb[wb.sheetnames[0]]
+        teachers = []
+        for row in range(1, ws.max_row + 1):
+            number = ws.cell(row, 1).value
+            name = ws.cell(row, 2).value
+            sex = ws.cell(row, 3).value
+            if not number or not name:
+                break
+            teachers.append({
+                'number': str(number).strip(),
+                'name': str(name).strip(),
+                'gender': str(sex).strip() if sex else '男',
+            })
+        if not teachers:
+            return {'error': 'Excel 中未解析到有效教师数据'}
+        return {'teachers': teachers}
+    except Exception as e:
+        logger.exception("教师 Excel 解析失败")
+        return {'error': f'文件解析失败：{str(e)}'}
+
+
+def preview_teacher_import(parsed):
+    """对比 DB 标注每个教师的状态"""
+    result = {'teachers': [], 'summary': {}}
+    new_count = 0
+    exist_count = 0
+    for t in parsed['teachers']:
+        user = User.objects.filter(username=t['number']).first()
+        if user:
+            profile = models.UserProfile.objects.filter(user=user).first()
+            if profile and profile.name != t['name']:
+                result['teachers'].append({
+                    **t, 'status': f'已存在(姓名不一致: 库中={profile.name})', 'conflict': True,
+                })
+            else:
+                result['teachers'].append({**t, 'status': '已存在', 'conflict': False})
+            exist_count += 1
+        else:
+            result['teachers'].append({**t, 'status': '新建账号', 'conflict': False})
+            new_count += 1
+    result['summary'] = {
+        'total': len(parsed['teachers']),
+        'new': new_count,
+        'exist': exist_count,
+    }
+    return result
 
 
 def write_teacher_users(teacher_list):

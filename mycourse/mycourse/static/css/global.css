@@ -62,7 +62,6 @@ input, select, textarea {
 
 /* --- 状态 Badge --- */
 .badge-submitted  { background: #28a745; }
-.badge-partial    { background: #ffc107; color: #333; }
 .badge-pending    { background: #6c757d; }
 .badge-delay      { background: #fd7e14; }
 .badge-overdue    { background: #dc3545; }

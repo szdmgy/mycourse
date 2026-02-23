@@ -10,7 +10,7 @@
   </ol>
 </nav>
 
-<h2 class="mb-3"><i class="bi bi-file-earmark-excel"></i> 导入 Excel 数据</h2>
+<h2 class="mb-3"><i class="bi bi-file-earmark-excel"></i> 数据导入</h2>
 
 {% if error %}
 <div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> {{ error }}</div>
@@ -19,14 +19,14 @@
 <div class="alert alert-success"><i class="bi bi-check-circle"></i> {{ success }}</div>
 {% endif %}
 
-<!-- 方式一：预览确认导入（推荐） -->
+<!-- 课程数据导入 -->
 <div class="card mb-3">
   <div class="card-header">
-    <strong><i class="bi bi-eye"></i> 方式一：预览后确认导入</strong>
-    <span class="badge bg-success ms-2">推荐</span>
+    <strong><i class="bi bi-journal-text"></i> 导入课程数据</strong>
+    <span class="badge bg-primary ms-2">含学生名单</span>
   </div>
   <div class="card-body">
-    <p style="font-size:.85rem; color:#666;">上传课程 Excel 文件后，系统会先解析预览，确认无误后再写入数据库。</p>
+    <p style="font-size:.85rem; color:#666;">上传深大课程 Excel 文件，系统会解析课程信息和学生名单，预览确认后再写入。</p>
     <form method="post" action="{% url 'preview_import' %}" enctype="multipart/form-data">
       {% csrf_token %}
       <input type="hidden" name="datatype" value="course">
@@ -45,36 +45,35 @@
   </div>
 </div>
 
-<!-- 方式二：直接导入（旧版） -->
-<div class="card">
+<!-- 教师数据导入 -->
+<div class="card mb-3">
   <div class="card-header">
-    <strong><i class="bi bi-lightning"></i> 方式二：直接导入</strong>
-    <span class="badge bg-secondary ms-2">旧版</span>
+    <strong><i class="bi bi-person-badge"></i> 导入教师数据</strong>
   </div>
   <div class="card-body">
-    <p style="font-size:.85rem; color:#666;">直接写入数据库，不经过预览确认，适合已确认无误的数据。</p>
-    <form method="post" enctype="multipart/form-data">
+    <p style="font-size:.85rem; color:#666;">Excel 格式：工号 | 姓名 | 性别（从第 1 行开始，无表头）。已存在的教师将自动跳过。</p>
+    <form method="post" action="{% url 'preview_import' %}" enctype="multipart/form-data">
       {% csrf_token %}
+      <input type="hidden" name="datatype" value="teacher">
       <div class="row g-2 align-items-end">
-        <div class="col-md-5">
-          <label class="form-label">选择文件</label>
+        <div class="col-md-6">
+          <label class="form-label">选择教师 Excel 文件</label>
           <input type="file" class="form-control" name="upload_file" accept=".xls,.xlsx,.xlsm" required>
         </div>
         <div class="col-md-3">
-          <label class="form-label">数据类型</label>
-          <select class="form-select" name="file_format">
-            <option value="course">课程</option>
-            <option value="student">学生</option>
-            <option value="teacher">教师</option>
-          </select>
-        </div>
-        <div class="col-md-2">
-          <button type="submit" class="btn btn-outline-primary">
-            <i class="bi bi-upload"></i> 直接导入
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-eye"></i> 预览导入
           </button>
         </div>
       </div>
     </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body" style="font-size:.85rem; color:#888;">
+    <i class="bi bi-info-circle"></i>
+    作业导入请到对应课程的「作业管理」页面使用「导入实验」功能。
   </div>
 </div>
 {% endblock %}

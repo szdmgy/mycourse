@@ -13,7 +13,7 @@ class UserProfileAdmin(admin.ModelAdmin):
 
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
-    list_display = ['courseBelongTo', 'title', 'maxFiles', 'slot1Name', 'slot1Type', 'display', 'deadline']
+    list_display = ['courseBelongTo', 'title', 'fileType', 'display', 'deadline']
     list_filter = ['courseBelongTo']
     search_fields = ['title']
 
@@ -44,8 +44,7 @@ class HomeworkFileInline(admin.TabularInline):
 
 @admin.register(HomeworkFile)
 class HomeworkFileAdmin(admin.ModelAdmin):
-    list_display = ['homework', 'slot', 'originalName', 'filePath']
-    list_filter = ['slot']
+    list_display = ['homework', 'originalName', 'filePath']
 
 
 @admin.register(Course)

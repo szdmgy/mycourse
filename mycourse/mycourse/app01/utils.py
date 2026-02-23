@@ -30,4 +30,7 @@ def get_display_name(user):
 
 def safe_filename(name):
     """将文件名中可能引起路径问题的字符替换掉"""
-    return name.replace('、', '_').replace('/', '_').replace('\\', '_')
+    import re
+    name = name.replace('、', '_').replace('/', '_').replace('\\', '_')
+    name = re.sub(r'[<>:"|?*\x00-\x1f]', '_', name)
+    return name.strip('. ')

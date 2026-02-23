@@ -78,42 +78,9 @@
             {{ form.deadline }}
           </div>
           <div class="col-md-6">
-            <label class="form-label" for="id_maxFiles">{{ form.maxFiles.label }}</label>
-            {{ form.maxFiles }}
-          </div>
-        </div>
-
-        <hr>
-        <h5>附件配置</h5>
-
-        <div class="row g-3" id="editSlot1">
-          <div class="col-md-6">
-            <label class="form-label" for="id_slot1Name">{{ form.slot1Name.label }} <span class="text-danger">*</span></label>
-            {{ form.slot1Name }}
-          </div>
-          <div class="col-md-6">
-            <label class="form-label" for="id_slot1Type">{{ form.slot1Type.label }}</label>
-            {{ form.slot1Type }}
-          </div>
-        </div>
-        <div class="row g-3 mt-1" id="editSlot2">
-          <div class="col-md-6">
-            <label class="form-label" for="id_slot2Name">{{ form.slot2Name.label }}</label>
-            {{ form.slot2Name }}
-          </div>
-          <div class="col-md-6">
-            <label class="form-label" for="id_slot2Type">{{ form.slot2Type.label }}</label>
-            {{ form.slot2Type }}
-          </div>
-        </div>
-        <div class="row g-3 mt-1" id="editSlot3">
-          <div class="col-md-6">
-            <label class="form-label" for="id_slot3Name">{{ form.slot3Name.label }}</label>
-            {{ form.slot3Name }}
-          </div>
-          <div class="col-md-6">
-            <label class="form-label" for="id_slot3Type">{{ form.slot3Type.label }}</label>
-            {{ form.slot3Type }}
+            <label class="form-label" for="id_fileType">{{ form.fileType.label }}</label>
+            {{ form.fileType }}
+            <div class="form-text">如 .docx,.pdf,.zip 或 * 表示不限</div>
           </div>
         </div>
 
@@ -131,14 +98,6 @@
 <script>
 var ORIGINAL_TITLE = '{{ original_title|escapejs }}';
 var SUBMITTED_COUNT = {{ submitted_count }};
-
-function toggleEditSlots(){
-  var n = parseInt(document.getElementById('id_maxFiles').value) || 1;
-  document.getElementById('editSlot2').style.display = n >= 2 ? '' : 'none';
-  document.getElementById('editSlot3').style.display = n >= 3 ? '' : 'none';
-}
-document.getElementById('id_maxFiles').addEventListener('change', toggleEditSlots);
-toggleEditSlots();
 
 document.getElementById('taskEditForm').addEventListener('submit', function(e){
   var newTitle = document.getElementById('id_title').value.trim();

@@ -18,7 +18,7 @@
       <div class="col-md-3"><strong>课程：</strong>{{ course.courseName }}</div>
       <div class="col-md-3"><strong>作业：</strong>{{ task.title }}</div>
       <div class="col-md-3"><strong>截止日期：</strong>{{ task.deadline|date:"Y-m-d" }}</div>
-      <div class="col-md-3"><strong>附件要求：</strong>{{ task.maxFiles }} 个</div>
+      <div class="col-md-3"><strong>文件类型：</strong>{{ task.fileType }}</div>
     </div>
   </div>
 </div>
@@ -83,7 +83,7 @@
             <td>{{ rec.name }}</td>
             <td>{% if rec.gender == 'M' %}男{% else %}女{% endif %}</td>
             <td>{{ rec.time|date:"Y-m-d H:i" }}</td>
-            <td>{{ rec.submitted_count }}/{{ rec.required_count }}</td>
+            <td>{% if rec.has_file %}<span class="badge bg-success">已上传</span>{% else %}<span class="badge bg-secondary">无文件</span>{% endif %}</td>
             <td>{% if rec.delay %}<span class="badge badge-delay">是</span>{% else %}<span class="badge badge-submitted">否</span>{% endif %}</td>
             <td><input type="checkbox" class="form-check-input hw-chk" data-number="{{ rec.number }}"></td>
           </tr>

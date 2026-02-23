@@ -20,6 +20,7 @@ from app01.models import Task, UserProfile, HomeworkFile
 from app01.upload_data import (
     extract_import_data, parse_course_excel, preview_course_import, write_course_data,
     parse_task_excel, write_task_import,
+    parse_teacher_excel, preview_teacher_import, write_teacher_users,
 )
 from app01.utils import file_iterator, is_teacher_or_admin, get_display_name, safe_filename
 from mycourse.settings import BASE_DIR, FILES_ROOT
@@ -163,31 +164,15 @@ def taskSubmit(request, taskID, taskTitle):
 
     homework = models.Homework.objects.filter(user=request.user.profile, task=task).first()
 
-    slots = []
-    for i in range(1, task.maxFiles + 1):
-        slot_name = getattr(task, f'slot{i}Name', '') or f'附件{i}'
-        slot_type = getattr(task, f'slot{i}Type', '*') or '*'
-        hw_file = None
-        if homework:
-            hw_file = HomeworkFile.objects.filter(homework=homework, slot=i).first()
-        slots.append({
-            'slot': i,
-            'name': slot_name,
-            'type': slot_type,
-            'fileName': os.path.basename(hw_file.filePath) if hw_file else None,
-            'originalName': hw_file.originalName if hw_file else None,
-            'fileId': hw_file.id if hw_file else None,
-        })
-
-    # 向后兼容：filePath 给旧模板用
-    filePath = slots[0]['fileName'] or 'False' if slots else 'False'
+    hw_file = None
+    if homework:
+        hw_file = HomeworkFile.objects.filter(homework=homework).first()
 
     context = {
         'name': get_display_name(request.user),
         'course': course,
         'task': task,
-        'slots': slots,
-        'filePath': filePath,
+        'hw_file': hw_file,
     }
     return render(request, 'studentSubmit.html', context)
 
@@ -207,15 +192,12 @@ def studentCourse(request, courseTerm, courseName, classNumber):
         past_deadline = today > task.deadline
 
         if homework:
-            submitted_count = HomeworkFile.objects.filter(homework=homework).count()
+            has_file = HomeworkFile.objects.filter(homework=homework).exists()
             is_delay = homework.time.date() > task.deadline
 
             if is_delay:
                 status = 'delay_submitted'
                 status_text = '逾期提交'
-            elif submitted_count < task.maxFiles and task.maxFiles > 1:
-                status = 'partial'
-                status_text = f'部分提交({submitted_count}/{task.maxFiles})'
             else:
                 status = 'submitted'
                 status_text = '已提交'
@@ -223,9 +205,8 @@ def studentCourse(request, courseTerm, courseName, classNumber):
             taskRecords.append({
                 'title': task.title, 'id': task.id,
                 'time': homework.time, 'deadline': task.deadline,
-                'maxFiles': task.maxFiles,
                 'status': status, 'status_text': status_text,
-                'submitted_count': submitted_count, 'required_count': task.maxFiles,
+                'has_file': has_file,
             })
         else:
             if past_deadline:
@@ -238,9 +219,8 @@ def studentCourse(request, courseTerm, courseName, classNumber):
             taskRecords.append({
                 'title': task.title, 'id': task.id,
                 'time': '', 'deadline': task.deadline,
-                'maxFiles': task.maxFiles,
                 'status': status, 'status_text': status_text,
-                'submitted_count': 0, 'required_count': task.maxFiles,
+                'has_file': False,
             })
 
     context = {
@@ -280,43 +260,38 @@ def post_file(request):
     file_obj = request.FILES.get('file')
     suffix = file_obj.name.rsplit('.', 1)[-1] if '.' in file_obj.name else ''
     task_id = request.POST.get('taskId')
-    slot = int(request.POST.get('slot', 1))
     task = models.Task.objects.get(id=task_id)
 
-    if slot < 1 or slot > task.maxFiles:
-        return HttpResponse('无效的附件序号')
-
-    slot_name = getattr(task, f'slot{slot}Name', '') or f'附件{slot}'
-    slot_type = getattr(task, f'slot{slot}Type', '*') or '*'
-
-    if slot_type != '*' and suffix:
-        allowed = [t.strip().lower().lstrip('.') for t in slot_type.split(',')]
+    if task.fileType != '*' and suffix:
+        allowed = [t.strip().lower().lstrip('.') for t in task.fileType.split(',')]
         if suffix.lower() not in allowed:
-            return HttpResponse(f'文件类型不允许，仅支持：{slot_type}')
+            return HttpResponse(f'文件类型不允许，仅支持：{task.fileType}')
 
-    title = safe_filename(task.title)
-    task_dir = os.path.join(
-        BASE_DIR, 'file', task.courseBelongTo.courseTerm,
-        task.courseBelongTo.courseName + task.courseBelongTo.classNumber, title
+    title_safe = safe_filename(task.title)
+    student_name = safe_filename(request.user.profile.name)
+    rel_dir = os.path.join(
+        'file', task.courseBelongTo.courseTerm,
+        task.courseBelongTo.courseName + task.courseBelongTo.classNumber, title_safe
     )
-    os.makedirs(task_dir, exist_ok=True)
+    abs_dir = os.path.join(BASE_DIR, rel_dir)
+    os.makedirs(abs_dir, exist_ok=True)
 
-    slot_name_safe = safe_filename(slot_name)
-    file_name = f'{title}_{request.user.username}_{request.user.profile.name}_slot{slot}_{slot_name_safe}.{suffix}'
-    file_path = os.path.join(task_dir, file_name)
+    file_name = f'{title_safe}_{request.user.username}_{student_name}.{suffix}'
+    rel_path = os.path.join(rel_dir, file_name)
+    abs_path = os.path.join(BASE_DIR, rel_path)
 
     homework, _ = models.Homework.objects.get_or_create(
         user=request.user.profile, task=task
     )
     HomeworkFile.objects.update_or_create(
-        homework=homework, slot=slot,
-        defaults={'filePath': file_path, 'originalName': file_obj.name}
+        homework=homework,
+        defaults={'filePath': rel_path, 'originalName': file_obj.name}
     )
 
-    with open(file_path, 'wb') as f:
+    with open(abs_path, 'wb') as f:
         f.write(file_obj.read())
 
-    logger.info("文件上传: %s -> %s (slot%d)", request.user.username, file_name, slot)
+    logger.info("文件上传: %s -> %s", request.user.username, file_name)
     return HttpResponse('YES')
 
 
@@ -353,11 +328,11 @@ def download_homework_file(request, file_id):
         if hw_file.homework.user != request.user.profile:
             return HttpResponse("无权下载此文件")
 
-    file_path = hw_file.filePath
+    file_path = hw_file.absPath
     if not os.path.exists(file_path):
         return HttpResponse("文件不存在")
 
-    filename = hw_file.originalName or os.path.basename(file_path)
+    filename = hw_file.standardName
     response = StreamingHttpResponse(file_iterator(file_path))
     response['Content-Type'] = 'application/octet-stream'
     response['Content-Disposition'] = 'attachment;filename=' + filename.encode('utf-8').decode('ISO-8859-1')
@@ -406,15 +381,9 @@ def teacherDownloadByHomeworknameAndStudentnumber(request):
             task=downloadTask, user__user__username=studentNumber
         ).last()
         if homework:
-            hw_files = HomeworkFile.objects.filter(homework=homework).order_by('slot')
-            student_dir = f'{studentNumber}_{homework.user.name}'
-            for hw_file in hw_files:
-                if not os.path.exists(hw_file.filePath):
-                    continue
-                slot_name = getattr(downloadTask, f'slot{hw_file.slot}Name', '') or f'附件{hw_file.slot}'
-                ext = os.path.splitext(hw_file.originalName)[1] if hw_file.originalName else os.path.splitext(hw_file.filePath)[1]
-                arc_name = f'slot{hw_file.slot}_{safe_filename(slot_name)}{ext}'
-                file_entries.append((student_dir, arc_name, hw_file.filePath))
+            hw_file = HomeworkFile.objects.filter(homework=homework).first()
+            if hw_file and os.path.exists(hw_file.absPath):
+                file_entries.append(('', os.path.basename(hw_file.absPath), hw_file.absPath))
 
     if not file_entries:
         return HttpResponse("没有可下载的文件")
@@ -429,22 +398,27 @@ def teacherDownloadByHomeworknameAndStudentnumber(request):
         return response
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
-    try:
-        with zipfile.ZipFile(tmp, mode="w", compression=zipfile.ZIP_STORED) as zf:
-            for student_dir, arc_name, filepath in file_entries:
-                zf.write(filepath, os.path.join(student_dir, arc_name))
-        tmp.close()
+    with zipfile.ZipFile(tmp, mode="w", compression=zipfile.ZIP_STORED) as zf:
+        for student_dir, arc_name, filepath in file_entries:
+            zf.write(filepath, arc_name)
+    tmp.close()
 
-        zipName = safe_filename(downloadTask.title) + ".zip"
-        response = StreamingHttpResponse(file_iterator(tmp.name))
-        response['Content-Type'] = 'application/octet-stream'
-        response['Content-Disposition'] = 'attachment;filename=' + zipName.encode('utf-8').decode('ISO-8859-1')
-        return response
-    finally:
+    zip_path = tmp.name
+    zipName = safe_filename(downloadTask.title) + ".zip"
+
+    def stream_and_cleanup():
         try:
-            os.unlink(tmp.name)
-        except OSError:
-            pass
+            yield from file_iterator(zip_path)
+        finally:
+            try:
+                os.unlink(zip_path)
+            except OSError:
+                pass
+
+    response = StreamingHttpResponse(stream_and_cleanup())
+    response['Content-Type'] = 'application/octet-stream'
+    response['Content-Disposition'] = 'attachment;filename=' + zipName.encode('utf-8').decode('ISO-8859-1')
+    return response
 
 
 @login_required
@@ -473,20 +447,11 @@ def addHomework(request):
         return HttpResponse("作业标题已经存在")
 
     deadline_str = request.POST.get('deadline', '')
-    maxFiles = max(1, min(3, int(request.POST.get('maxFiles', 1))))
-    slot1Name = request.POST.get('slot1Name', '') or '实验报告'
-    slot1Type = request.POST.get('slot1Type', '') or '*'
-    slot2Name = request.POST.get('slot2Name', '')
-    slot2Type = request.POST.get('slot2Type', '') or '*'
-    slot3Name = request.POST.get('slot3Name', '')
-    slot3Type = request.POST.get('slot3Type', '') or '*'
+    fileType = request.POST.get('fileType', '') or '*'
 
     task_data = dict(
         title=homeworkTitle, content=homeworkContent,
-        courseBelongTo=course, maxFiles=maxFiles,
-        slot1Name=slot1Name, slot1Type=slot1Type,
-        slot2Name=slot2Name, slot2Type=slot2Type,
-        slot3Name=slot3Name, slot3Type=slot3Type,
+        courseBelongTo=course, fileType=fileType,
     )
     if deadline_str:
         from datetime import date as _date
@@ -620,7 +585,7 @@ def delayRecords(request, courseID):
             for student in students:
                 homework = models.Homework.objects.filter(task=task, user=student).first()
                 if homework:
-                    submitted_count = HomeworkFile.objects.filter(homework=homework).count()
+                    has_file = HomeworkFile.objects.filter(homework=homework).exists()
                     is_delay = homework.time.date() > task.deadline
                     if is_delay:
                         records.append({
@@ -628,15 +593,7 @@ def delayRecords(request, courseID):
                             'number': student.user.username,
                             'time': homework.time, 'deadline': task.deadline,
                             'status': '延期提交',
-                            'submitted': submitted_count, 'required': task.maxFiles,
-                        })
-                    elif submitted_count < task.maxFiles:
-                        records.append({
-                            'title': task.title, 'name': student.name,
-                            'number': student.user.username,
-                            'time': homework.time, 'deadline': task.deadline,
-                            'status': f'部分提交({submitted_count}/{task.maxFiles})',
-                            'submitted': submitted_count, 'required': task.maxFiles,
+                            'has_file': has_file,
                         })
                 else:
                     if timezone.now().date() > task.deadline:
@@ -645,7 +602,7 @@ def delayRecords(request, courseID):
                             'number': student.user.username,
                             'time': '', 'deadline': task.deadline,
                             'status': '未提交',
-                            'submitted': 0, 'required': task.maxFiles,
+                            'has_file': False,
                         })
 
         context = {
@@ -676,22 +633,16 @@ def homeworkRecords(request, taskID, taskTitle):
         for hw in homeworks:
             if hw.user in students:
                 submitStudents.append(hw.user)
-                hw_files = HomeworkFile.objects.filter(homework=hw).order_by('slot')
-                slot_info = {}
-                for hf in hw_files:
-                    slot_info[hf.slot] = {
-                        'originalName': hf.originalName,
-                        'fileId': hf.id,
-                    }
+                hw_file = HomeworkFile.objects.filter(homework=hw).first()
                 submitRecords.append({
                     'number': hw.user.user.username,
                     'name': hw.user.name,
                     'gender': hw.user.gender,
                     'time': hw.time,
                     'delay': hw.time.date() > task.deadline,
-                    'slot_info': slot_info,
-                    'submitted_count': len(slot_info),
-                    'required_count': task.maxFiles,
+                    'file_name': os.path.basename(hw_file.filePath) if hw_file else '',
+                    'file_id': hw_file.id if hw_file else None,
+                    'has_file': hw_file is not None,
                 })
 
         for student in students:
@@ -738,33 +689,22 @@ def resetPassword(request):
 class TaskEditForm(forms.ModelForm):
     class Meta:
         model = Task
-        fields = ['title', 'content', 'display', 'deadline', 'maxFiles',
-                  'slot1Name', 'slot1Type', 'slot2Name', 'slot2Type',
-                  'slot3Name', 'slot3Type']
+        fields = ['title', 'content', 'display', 'deadline', 'fileType']
         widgets = {
             'title': forms.TextInput(attrs={'class': 'form-control'}),
             'content': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'display': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'deadline': forms.DateInput(format='%Y-%m-%d',
                                         attrs={'type': 'date', 'class': 'form-control'}),
-            'maxFiles': forms.Select(choices=[(1, '1'), (2, '2'), (3, '3')],
-                                     attrs={'class': 'form-select', 'id': 'id_maxFiles'}),
-            'slot1Name': forms.TextInput(attrs={'class': 'form-control'}),
-            'slot1Type': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '* 为不限'}),
-            'slot2Name': forms.TextInput(attrs={'class': 'form-control'}),
-            'slot2Type': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '* 为不限'}),
-            'slot3Name': forms.TextInput(attrs={'class': 'form-control'}),
-            'slot3Type': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '* 为不限'}),
+            'fileType': forms.TextInput(attrs={'class': 'form-control',
+                                               'placeholder': '如 .docx,.pdf 或 * 表示不限'}),
         }
         labels = {
             'title': '作业标题',
             'content': '作业正文',
             'display': '是否显示',
             'deadline': '截止日期',
-            'maxFiles': '最大附件数',
-            'slot1Name': '附件1名称', 'slot1Type': '附件1类型',
-            'slot2Name': '附件2名称', 'slot2Type': '附件2类型',
-            'slot3Name': '附件3名称', 'slot3Type': '附件3类型',
+            'fileType': '允许的文件类型',
         }
 
 
@@ -989,18 +929,9 @@ def process_files(request):
 
 @login_required
 def import_data(request):
-    """旧版导入入口（保留兼容）"""
+    """数据导入入口页面"""
     if not request.user.is_superuser:
         return HttpResponse("警告！您不是管理员！无法进入此界面！")
-
-    if request.method == 'POST':
-        upload_file = request.FILES.get('upload_file')
-        file_format = request.POST.get('file_format')
-        if not upload_file:
-            return render(request, 'import.html', {'error': '请选择文件'})
-        result = extract_import_data(upload_file, file_format)
-        return render(request, 'import.html', result)
-
     return render(request, 'import.html')
 
 
@@ -1034,9 +965,24 @@ def preview_import(request):
             'datatype': 'course',
             'name': get_display_name(request.user),
         })
+    elif datatype == 'teacher':
+        parsed = parse_teacher_excel(upload_file)
+        if 'error' in parsed:
+            return render(request, 'import_preview.html', {
+                'error': parsed['error'],
+                'name': get_display_name(request.user),
+            })
+        preview = preview_teacher_import(parsed)
+        request.session['import_parsed_data'] = parsed
+        request.session['import_datatype'] = 'teacher'
+        return render(request, 'import_preview.html', {
+            'preview': preview,
+            'datatype': 'teacher',
+            'name': get_display_name(request.user),
+        })
     else:
         return render(request, 'import_preview.html', {
-            'error': f'暂不支持 "{datatype}" 类型的预览导入，请使用旧版导入',
+            'error': f'不支持的导入类型：{datatype}',
             'name': get_display_name(request.user),
         })
 
@@ -1065,6 +1011,9 @@ def confirm_import(request):
                 f"班号 {parsed['classNumber']}，"
                 f"学生 {len(parsed['students'])} 人"
             )
+        elif datatype == 'teacher':
+            write_teacher_users(parsed['teachers'])
+            result_msg = f"导入成功！共处理 {len(parsed['teachers'])} 名教师"
         else:
             result_msg = '导入完成'
 
@@ -1098,14 +1047,14 @@ def teacher_course_change(request, courseTerm, courseName, classNumber):
             if hw.user.pk in seen or hw.user not in students:
                 continue
             seen.add(hw.user.pk)
-            file_count = HomeworkFile.objects.filter(homework=hw).count()
+            has_file = HomeworkFile.objects.filter(homework=hw).exists()
             submitted.append({
                 'number': hw.user.user.username,
                 'name': hw.user.name,
                 'gender': hw.user.gender,
                 'time': hw.time,
                 'delay': hw.time.date() > task.deadline,
-                'file_count': file_count,
+                'has_file': has_file,
             })
         for student in students:
             if student.pk not in seen:
@@ -1130,16 +1079,26 @@ def teacher_course_change(request, courseTerm, courseName, classNumber):
 
 @login_required
 def getHistoryTasks(request, courseID):
-    """获取可复用的历史实验列表（JSON API）"""
+    """获取可复用的历史实验列表（JSON API）——仅返回同名课程"""
     if not is_teacher_or_admin(request.user):
         return JsonResponse({'error': '无权限'}, status=403)
 
+    current_course = get_object_or_404(models.Course, pk=courseID)
+
     if request.user.is_superuser:
-        courses = models.Course.objects.exclude(pk=courseID)
+        courses = models.Course.objects.filter(
+            courseName=current_course.courseName
+        ).exclude(pk=courseID)
     else:
         courses = models.Course.objects.filter(
-            members__user=request.user
+            members__user=request.user,
+            courseName=current_course.courseName
         ).exclude(pk=courseID)
+
+    existing_titles = set(
+        models.Task.objects.filter(courseBelongTo=current_course)
+        .values_list('title', flat=True)
+    )
 
     result = []
     for course in courses.distinct():
@@ -1151,10 +1110,8 @@ def getHistoryTasks(request, courseID):
             task_list.append({
                 'id': t.id, 'title': t.title,
                 'content': t.content[:100],
-                'maxFiles': t.maxFiles,
-                'slot1Name': t.slot1Name, 'slot1Type': t.slot1Type,
-                'slot2Name': t.slot2Name, 'slot2Type': t.slot2Type,
-                'slot3Name': t.slot3Name, 'slot3Type': t.slot3Type,
+                'fileType': t.fileType,
+                'duplicate': t.title in existing_titles,
             })
         result.append({
             'courseID': course.id,
@@ -1191,10 +1148,7 @@ def copyTasks(request):
             models.Task.objects.create(
                 title=new_title, content=src.content,
                 courseBelongTo=target_course,
-                maxFiles=src.maxFiles,
-                slot1Name=src.slot1Name, slot1Type=src.slot1Type,
-                slot2Name=src.slot2Name, slot2Type=src.slot2Type,
-                slot3Name=src.slot3Name, slot3Type=src.slot3Type,
+                fileType=src.fileType,
             )
             copied.append(new_title)
         except models.Task.DoesNotExist:
