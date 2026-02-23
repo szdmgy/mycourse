@@ -239,12 +239,20 @@ def studentGetTaskByCoursename(request, courseTerm, courseName, classNumber):
 
 @login_required
 def studentCourseList(request):
-    courses = models.Course.objects.filter(members__user=request.user)
-    courseList = [c for c in courses if c.status == 'Y']
-    taskCountList = [models.Task.objects.filter(courseBelongTo=c).count() for c in courseList]
+    from django.db.models import Count
+    from collections import OrderedDict
+
+    courses = (models.Course.objects.filter(members__user=request.user, status='Y')
+               .annotate(task_count=Count('task'))
+               .order_by('-courseTerm', 'courseName'))
+
+    term_groups = OrderedDict()
+    for c in courses:
+        term_groups.setdefault(c.courseTerm, []).append(c)
 
     context = {
-        'course': zip(courseList, taskCountList) if courseList else None,
+        'term_groups': term_groups,
+        'total_courses': courses.count(),
         'name': get_display_name(request.user),
     }
     return render(request, 'studentCourseList.html', context)
