@@ -186,14 +186,13 @@
   </div>
   {% endif %}
 
-  <!-- 教师列表（折叠） -->
   {% if preview.teachers %}
   <div class="card mb-3">
     <div class="card-header" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#teacherCollapse">
       <strong><i class="bi bi-person-badge"></i> 教师（{{ preview.teachers|length }} 人）</strong>
-      <i class="bi bi-chevron-down float-end"></i>
+      <i class="bi bi-chevron-up float-end" id="teacherChevron"></i>
     </div>
-    <div class="collapse" id="teacherCollapse">
+    <div class="collapse show" id="teacherCollapse">
       <div class="card-body p-0">
         <div class="table-responsive">
           <table class="table table-hover align-middle mb-0">
@@ -218,10 +217,9 @@
   <div class="card mb-3">
     <div class="card-header" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#studentCollapse">
       <strong><i class="bi bi-people"></i> 学生名单（{{ preview.students|length }} 人）</strong>
-      <small class="text-muted ms-2">点击展开查看</small>
-      <i class="bi bi-chevron-down float-end"></i>
+      <i class="bi bi-chevron-up float-end" id="studentChevron"></i>
     </div>
-    <div class="collapse" id="studentCollapse">
+    <div class="collapse show" id="studentCollapse">
       <div class="card-body p-0">
         <div class="table-responsive">
           <table class="table table-hover align-middle mb-0">
@@ -275,10 +273,9 @@
   <div class="card mb-3">
     <div class="card-header" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#teacherListCollapse">
       <strong><i class="bi bi-person-badge"></i> 教师列表（{{ preview.teachers|length }} 人）</strong>
-      <small class="text-muted ms-2">点击展开查看</small>
-      <i class="bi bi-chevron-down float-end"></i>
+      <i class="bi bi-chevron-up float-end" id="teacherListChevron"></i>
     </div>
-    <div class="collapse" id="teacherListCollapse">
+    <div class="collapse show" id="teacherListCollapse">
       <div class="card-body p-0">
         <div class="table-responsive">
           <table class="table table-hover align-middle mb-0">
@@ -303,5 +300,21 @@
   </div>
   {% endif %}
 
+{% endif %}
+
+{% if preview %}
+<script>
+document.querySelectorAll('[data-bs-toggle="collapse"]').forEach(function(header) {
+  var target = document.querySelector(header.getAttribute('data-bs-target'));
+  var chevron = header.querySelector('[class*="bi-chevron"]');
+  if (!target || !chevron) return;
+  target.addEventListener('hidden.bs.collapse', function() {
+    chevron.classList.replace('bi-chevron-up', 'bi-chevron-down');
+  });
+  target.addEventListener('shown.bs.collapse', function() {
+    chevron.classList.replace('bi-chevron-down', 'bi-chevron-up');
+  });
+});
+</script>
 {% endif %}
 {% endblock %}
