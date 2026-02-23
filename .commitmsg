@@ -1,7 +1,6 @@
-多线程并行密码哈希：批量导入从 33 秒降至约 5 秒
+修复作业导入：Excel 文件内重复标题导致写入失败
 
-- 诊断发现瓶颈是 make_password（PBKDF2 87万次迭代，每次 425ms）
-- 数据库写入仅 1 秒，密码哈希占 97% 耗时
-- 新增 _bulk_make_passwords 函数，利用 ThreadPoolExecutor 并行哈希
-- 自动检测 CPU 核心数，最多使用 16 线程
-- write_student_users 和 write_teacher_users 均改用并行哈希
+- parse_task_excel 增加文件内去重检测（之前只检查数据库重复）
+- 区分两种重复：已存在于数据库(dup_reason=db) / 文件内重复(dup_reason=file)
+- 前端预览表格区分显示：红色「文件内重复-跳过」和黄色「已存在-跳过」
+- confirm_task_import 增加异常捕获，返回 JSON 错误而非 HTML 500 页面

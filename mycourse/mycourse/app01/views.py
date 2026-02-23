@@ -1218,8 +1218,12 @@ def confirm_task_import(request):
     if not course:
         return JsonResponse({'error': '课程不存在'}, status=404)
 
-    result = write_task_import(pending['tasks'], course)
-    return JsonResponse(result)
+    try:
+        result = write_task_import(pending['tasks'], course)
+        return JsonResponse(result)
+    except Exception as e:
+        logger.exception("作业导入写入失败")
+        return JsonResponse({'error': f'写入失败：{str(e)}'}, status=500)
 
 
 def create_student_user():

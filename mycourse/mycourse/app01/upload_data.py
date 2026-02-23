@@ -52,6 +52,7 @@ def extract_course_data(upload_file):
 def parse_task_excel(upload_file, course):
     """纯解析作业 Excel，返回预览数据（不写入数据库）。
     Excel 列：A标题  B内容  C文件类型(可选)  D显示(Y/N, 可选)
+    同时检测数据库重复和 Excel 文件内重复。
     """
     try:
         wb = openpyxl.load_workbook(upload_file)
@@ -61,6 +62,7 @@ def parse_task_excel(upload_file, course):
             .values_list('title', flat=True)
         )
         tasks = []
+        seen_titles = set()
         for row in range(2, ws.max_row + 1):
             title = ws.cell(row, 1).value
             content = ws.cell(row, 2).value
@@ -74,10 +76,19 @@ def parse_task_excel(upload_file, course):
             display_val = ws.cell(row, 4).value or ''
             display = False if str(display_val).strip().upper() == 'N' else True
 
+            if title in existing_titles:
+                dup_reason = 'db'
+            elif title in seen_titles:
+                dup_reason = 'file'
+            else:
+                dup_reason = None
+
+            seen_titles.add(title)
             tasks.append({
                 'title': title, 'content': content,
                 'fileType': file_type, 'display': display,
-                'duplicate': title in existing_titles,
+                'duplicate': dup_reason is not None,
+                'dup_reason': dup_reason,
             })
 
         if not tasks:

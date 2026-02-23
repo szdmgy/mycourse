@@ -646,9 +646,14 @@ function renderTaskPreview(data){
   tbody.innerHTML = '';
   tasks.forEach(function(t, i){
     var ft = t.fileType || '*';
-    var statusBadge = t.duplicate
-      ? '<span class="badge bg-warning">重复-跳过</span>'
-      : '<span class="badge bg-success">新增</span>';
+    var statusBadge;
+    if (t.duplicate && t.dup_reason === 'file') {
+      statusBadge = '<span class="badge bg-danger">文件内重复-跳过</span>';
+    } else if (t.duplicate) {
+      statusBadge = '<span class="badge bg-warning">已存在-跳过</span>';
+    } else {
+      statusBadge = '<span class="badge bg-success">新增</span>';
+    }
     var row = '<tr' + (t.duplicate ? ' class="table-warning"' : '') + '>' +
       '<td>' + (i+1) + '</td>' +
       '<td>' + t.title + '</td>' +
