@@ -1017,12 +1017,22 @@ def confirm_import(request):
 
     try:
         if datatype == 'course':
+            existing = models.Course.objects.filter(
+                courseTerm=parsed['courseTerm'],
+                courseNumber=parsed['courseNumber'],
+                classNumber=parsed['classNumber'],
+            ).exists()
             course_obj = write_course_data(parsed)
-            result_msg = (
-                f"导入成功！课程：{parsed['courseName']}（{parsed['courseNumber']}）"
-                f"班号 {parsed['classNumber']}，"
-                f"学生 {len(parsed['students'])} 人"
-            )
+            if existing:
+                result_msg = (
+                    f"名单更新成功！课程：{parsed['courseName']}（{parsed['courseNumber']}）"
+                    f"班号 {parsed['classNumber']}，当前学生 {len(parsed['students'])} 人"
+                )
+            else:
+                result_msg = (
+                    f"导入成功！课程：{parsed['courseName']}（{parsed['courseNumber']}）"
+                    f"班号 {parsed['classNumber']}，学生 {len(parsed['students'])} 人"
+                )
         elif datatype == 'teacher':
             write_teacher_users(parsed['teachers'])
             result_msg = f"导入成功！共处理 {len(parsed['teachers'])} 名教师"

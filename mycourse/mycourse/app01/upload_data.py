@@ -195,7 +195,7 @@ def parse_course_excel(upload_file):
 # ═══════════════════════ 第二层：预览（读 DB 标注状态，不写 DB） ═══════════════════════
 
 def preview_course_import(parsed):
-    """对比 DB 标注每条数据的状态（新建/已存在/冲突），不写库"""
+    """对比 DB 标注每条数据的状态，检测名单变动，不写库"""
     result = {
         'course': {
             'courseTerm': parsed['courseTerm'],
@@ -205,7 +205,7 @@ def preview_course_import(parsed):
         },
         'teachers': [],
         'students': [],
-        'errors': [],
+        'removed_students': [],
         'summary': {},
     }
 
@@ -214,7 +214,6 @@ def preview_course_import(parsed):
         courseNumber=parsed['courseNumber'],
         classNumber=parsed['classNumber'],
     ).first()
-    result['course']['status'] = '已存在(将关联)' if existing else '新建'
     result['course']['exists'] = existing is not None
 
     for tname in parsed['teachers']:
@@ -227,6 +226,8 @@ def preview_course_import(parsed):
             result['teachers'].append({
                 'name': tname, 'number': '—', 'status': '仅关联名称(无账号)',
             })
+
+    excel_numbers = {stu['number'] for stu in parsed['students']}
 
     new_count = 0
     exist_count = 0
@@ -248,13 +249,39 @@ def preview_course_import(parsed):
             result['students'].append({**stu, 'status': '新建账号', 'conflict': False})
             new_count += 1
 
+    removed_count = 0
+    if existing:
+        current_student_profiles = existing.members.filter(type='S')
+        for profile in current_student_profiles:
+            if profile.user.username not in excel_numbers:
+                result['removed_students'].append({
+                    'number': profile.user.username,
+                    'name': profile.name,
+                })
+                removed_count += 1
+
+    has_changes = new_count > 0 or removed_count > 0
+    if existing:
+        if has_changes:
+            result['course']['status'] = '已存在'
+            result['course']['action'] = 'update'
+        else:
+            result['course']['status'] = '已存在，名单无变化'
+            result['course']['action'] = 'none'
+    else:
+        result['course']['status'] = '新建'
+        result['course']['action'] = 'create'
+
     result['summary'] = {
         'student_new': new_count,
         'student_exist': exist_count,
+        'student_removed': removed_count,
         'student_error': error_count,
         'student_total': len(parsed['students']),
         'teacher_count': len(parsed['teachers']),
         'course_status': result['course']['status'],
+        'action': result['course']['action'],
+        'has_changes': has_changes,
     }
 
     return result
@@ -263,7 +290,7 @@ def preview_course_import(parsed):
 # ═══════════════════════ 第三层：写入 DB ═══════════════════════
 
 def write_course_data(parsed):
-    """将解析后的课程数据写入数据库"""
+    """将解析后的课程数据写入数据库，支持新增和更新名单（含移除退出学生）"""
     course_obj, created = models.Course.objects.get_or_create(
         courseTerm=parsed['courseTerm'],
         courseNumber=parsed['courseNumber'],
@@ -282,12 +309,19 @@ def write_course_data(parsed):
     else:
         student_list = parsed.get('students', [])
 
+    excel_numbers = set()
     write_student_users(student_list)
     for stu in student_list:
         number = stu[0] if isinstance(stu, list) else stu['number']
+        excel_numbers.add(str(number))
         profile = models.UserProfile.objects.filter(user__username=number).first()
         if profile:
             course_obj.members.add(profile)
+
+    if not created:
+        for profile in course_obj.members.filter(type='S'):
+            if profile.user.username not in excel_numbers:
+                course_obj.members.remove(profile)
 
     teachers = parsed['teachers']
     if isinstance(teachers, str):

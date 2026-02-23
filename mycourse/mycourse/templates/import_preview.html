@@ -8,10 +8,12 @@
   .status-new { color: #28a745; font-weight: 600; }
   .status-exist { color: #6c757d; }
   .status-conflict { color: #dc3545; font-weight: 600; }
+  .status-removed { color: #e67e22; font-weight: 600; }
   .course-info { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 30px; font-size: .9rem; }
   .course-info .label { color: #666; }
   .course-info .value { font-weight: 600; }
   .summary-box { background: #f0f7ff; padding: 15px 20px; border-radius: 8px; font-size: .9rem; line-height: 1.8; }
+  .action-bar { display: flex; gap: 12px; justify-content: center; margin: 20px 0; }
 </style>
 {% endblock %}
 
@@ -54,16 +56,21 @@
 {% endif %}
 
 {% if preview %}
-  <h2 class="mb-3"><i class="bi bi-eye"></i> 导入预览 — 请确认后再写入</h2>
-
   {% if datatype == 'course' %}
   <!-- ═══ 课程导入预览 ═══ -->
+  <h2 class="mb-3"><i class="bi bi-eye"></i> 导入预览</h2>
+
+  <!-- 课程信息卡片 -->
   <div class="card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center">
       <strong><i class="bi bi-journal-text"></i> 课程信息</strong>
-      <span class="{% if preview.course.exists %}status-exist{% else %}status-new{% endif %}">
-        【{{ preview.course.status }}】
-      </span>
+      {% if preview.course.action == 'create' %}
+        <span class="badge bg-success">新建课程</span>
+      {% elif preview.course.action == 'update' %}
+        <span class="badge bg-warning text-dark">课程已存在 · 名单有变动</span>
+      {% else %}
+        <span class="badge bg-secondary">课程已存在 · 名单无变化</span>
+      {% endif %}
     </div>
     <div class="card-body">
       <div class="course-info">
@@ -75,21 +82,101 @@
     </div>
   </div>
 
-  {% if preview.teachers %}
+  <!-- 汇总 + 操作按钮（紧跟课程信息之后） -->
   <div class="card mb-3">
-    <div class="card-header">
-      <strong><i class="bi bi-person-badge"></i> 教师（{{ preview.teachers|length }} 人）</strong>
+    <div class="card-header"><strong><i class="bi bi-clipboard-data"></i> 汇总</strong></div>
+    <div class="card-body">
+      {% if preview.course.action == 'none' %}
+        <div class="alert alert-secondary mb-0 py-2">
+          <i class="bi bi-info-circle"></i>
+          该课程已导入且名单无变化（{{ preview.summary.student_total }} 名学生完全一致），无需重复操作。
+        </div>
+      {% elif preview.course.action == 'update' %}
+        <div class="alert alert-warning mb-3 py-2">
+          <i class="bi bi-arrow-repeat"></i>
+          该课程已存在，检测到名单变动：
+          {% if preview.summary.student_new > 0 %}<strong class="status-new">新增 {{ preview.summary.student_new }} 人</strong>{% endif %}
+          {% if preview.summary.student_new > 0 and preview.summary.student_removed > 0 %}，{% endif %}
+          {% if preview.summary.student_removed > 0 %}<strong class="status-removed">退出 {{ preview.summary.student_removed }} 人</strong>{% endif %}
+          ，不变 {{ preview.summary.student_exist }} 人。
+          <br><small>确认后将更新课程名单，退出学生的已提交作业不受影响。</small>
+        </div>
+      {% else %}
+        <div class="summary-box mb-0">
+          教师：{{ preview.summary.teacher_count }} 人 &nbsp;|&nbsp;
+          学生：{{ preview.summary.student_total }} 人
+          （<span class="status-new">新建账号 {{ preview.summary.student_new }}</span>，
+           已有账号 {{ preview.summary.student_exist }}{% if preview.summary.student_error %}，
+           <span class="status-conflict">冲突 {{ preview.summary.student_error }}</span>{% endif %}）
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- 操作按钮 -->
+  <div class="action-bar">
+    {% if preview.course.action == 'none' %}
+      {% if source == 'teacher' %}
+        <a href="{% url 'teacherCourseList' %}" class="btn btn-primary btn-lg">
+          <i class="bi bi-arrow-left"></i> 返回我的课程
+        </a>
+      {% else %}
+        <a href="{% url 'import_data' %}" class="btn btn-primary btn-lg">
+          <i class="bi bi-arrow-left"></i> 返回
+        </a>
+      {% endif %}
+    {% elif preview.course.action == 'update' %}
+      <form method="post" action="{% url 'confirm_import' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-warning btn-lg">
+          <i class="bi bi-arrow-repeat"></i> 确认更新名单
+        </button>
+      </form>
+      {% if source == 'teacher' %}
+        <a href="{% url 'teacherCourseList' %}" class="btn btn-secondary btn-lg">
+          <i class="bi bi-x-lg"></i> 取消
+        </a>
+      {% else %}
+        <a href="{% url 'import_data' %}" class="btn btn-secondary btn-lg">
+          <i class="bi bi-x-lg"></i> 取消
+        </a>
+      {% endif %}
+    {% else %}
+      <form method="post" action="{% url 'confirm_import' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-success btn-lg">
+          <i class="bi bi-check-lg"></i> 确认导入
+        </button>
+      </form>
+      {% if source == 'teacher' %}
+        <a href="{% url 'teacherCourseList' %}" class="btn btn-secondary btn-lg">
+          <i class="bi bi-x-lg"></i> 取消
+        </a>
+      {% else %}
+        <a href="{% url 'import_data' %}" class="btn btn-secondary btn-lg">
+          <i class="bi bi-x-lg"></i> 取消
+        </a>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  <!-- 退出学生名单（仅更新模式且有退出时显示） -->
+  {% if preview.removed_students %}
+  <div class="card mb-3 border-warning">
+    <div class="card-header bg-warning bg-opacity-10">
+      <strong><i class="bi bi-person-dash"></i> 退出学生（{{ preview.removed_students|length }} 人）</strong>
+      <small class="text-muted ms-2">— 以下学生不在新名单中，确认后将从课程移除</small>
     </div>
     <div class="card-body p-0">
       <div class="table-responsive">
         <table class="table table-hover align-middle mb-0">
-          <thead class="table-light"><tr><th>姓名</th><th>工号</th><th>状态</th></tr></thead>
+          <thead class="table-light"><tr><th>#</th><th>学号</th><th>姓名</th></tr></thead>
           <tbody>
-          {% for t in preview.teachers %}
-            <tr>
-              <td>{{ t.name }}</td>
-              <td>{{ t.number }}</td>
-              <td class="{% if t.status == '已存在' %}status-exist{% else %}status-new{% endif %}">{{ t.status }}</td>
+          {% for s in preview.removed_students %}
+            <tr class="table-warning">
+              <td>{{ forloop.counter }}</td>
+              <td>{{ s.number }}</td>
+              <td>{{ s.name }}</td>
             </tr>
           {% endfor %}
           </tbody>
@@ -99,73 +186,68 @@
   </div>
   {% endif %}
 
+  <!-- 教师列表（折叠） -->
+  {% if preview.teachers %}
   <div class="card mb-3">
-    <div class="card-header">
-      <strong><i class="bi bi-people"></i> 学生（{{ preview.students|length }} 人）</strong>
+    <div class="card-header" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#teacherCollapse">
+      <strong><i class="bi bi-person-badge"></i> 教师（{{ preview.teachers|length }} 人）</strong>
+      <i class="bi bi-chevron-down float-end"></i>
     </div>
-    <div class="card-body p-0">
-      <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0">
-          <thead class="table-light"><tr><th>#</th><th>学号</th><th>姓名</th><th>性别</th><th>状态</th></tr></thead>
-          <tbody>
-          {% for s in preview.students %}
-            <tr{% if s.conflict %} class="table-danger"{% endif %}>
-              <td>{{ forloop.counter }}</td>
-              <td>{{ s.number }}</td>
-              <td>{{ s.name }}</td>
-              <td>{{ s.gender }}</td>
-              <td class="{% if s.status == '新建账号' %}status-new{% elif s.conflict %}status-conflict{% else %}status-exist{% endif %}">
-                {{ s.status }}
-              </td>
-            </tr>
-          {% endfor %}
-          </tbody>
-        </table>
+    <div class="collapse" id="teacherCollapse">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light"><tr><th>姓名</th><th>工号</th><th>状态</th></tr></thead>
+            <tbody>
+            {% for t in preview.teachers %}
+              <tr>
+                <td>{{ t.name }}</td>
+                <td>{{ t.number }}</td>
+                <td class="{% if t.status == '已存在' %}status-exist{% else %}status-new{% endif %}">{{ t.status }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
+  {% endif %}
 
+  <!-- 学生名单（折叠） -->
   <div class="card mb-3">
-    <div class="card-header"><strong><i class="bi bi-clipboard-data"></i> 汇总</strong></div>
-    <div class="card-body">
-      <div class="summary-box">
-        课程：{{ preview.summary.course_status }} &nbsp;|&nbsp;
-        教师：{{ preview.summary.teacher_count }} 人 &nbsp;|&nbsp;
-        学生合计：{{ preview.summary.student_total }} 人
-        （<span class="status-new">新建 {{ preview.summary.student_new }}</span>，
-         已存在 {{ preview.summary.student_exist }}{% if preview.summary.student_error %}，
-         <span class="status-conflict">冲突 {{ preview.summary.student_error }}</span>{% endif %}）
+    <div class="card-header" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#studentCollapse">
+      <strong><i class="bi bi-people"></i> 学生名单（{{ preview.students|length }} 人）</strong>
+      <small class="text-muted ms-2">点击展开查看</small>
+      <i class="bi bi-chevron-down float-end"></i>
+    </div>
+    <div class="collapse" id="studentCollapse">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light"><tr><th>#</th><th>学号</th><th>姓名</th><th>性别</th><th>状态</th></tr></thead>
+            <tbody>
+            {% for s in preview.students %}
+              <tr{% if s.conflict %} class="table-danger"{% endif %}>
+                <td>{{ forloop.counter }}</td>
+                <td>{{ s.number }}</td>
+                <td>{{ s.name }}</td>
+                <td>{{ s.gender }}</td>
+                <td class="{% if s.status == '新建账号' %}status-new{% elif s.conflict %}status-conflict{% else %}status-exist{% endif %}">
+                  {{ s.status }}
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
 
   {% elif datatype == 'teacher' %}
   <!-- ═══ 教师导入预览 ═══ -->
-  <div class="card mb-3">
-    <div class="card-header">
-      <strong><i class="bi bi-person-badge"></i> 教师列表（{{ preview.teachers|length }} 人）</strong>
-    </div>
-    <div class="card-body p-0">
-      <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0">
-          <thead class="table-light"><tr><th>#</th><th>工号</th><th>姓名</th><th>性别</th><th>状态</th></tr></thead>
-          <tbody>
-          {% for t in preview.teachers %}
-            <tr{% if t.conflict %} class="table-danger"{% endif %}>
-              <td>{{ forloop.counter }}</td>
-              <td>{{ t.number }}</td>
-              <td>{{ t.name }}</td>
-              <td>{{ t.gender }}</td>
-              <td class="{% if t.status == '新建账号' %}status-new{% elif t.conflict %}status-conflict{% else %}status-exist{% endif %}">
-                {{ t.status }}
-              </td>
-            </tr>
-          {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
+  <h2 class="mb-3"><i class="bi bi-eye"></i> 导入预览</h2>
 
   <div class="card mb-3">
     <div class="card-header"><strong><i class="bi bi-clipboard-data"></i> 汇总</strong></div>
@@ -177,25 +259,49 @@
       </div>
     </div>
   </div>
-  {% endif %}
 
-  <!-- 操作按钮 -->
-  <div class="d-flex gap-3 justify-content-center mt-4">
+  <div class="action-bar">
     <form method="post" action="{% url 'confirm_import' %}">
       {% csrf_token %}
       <button type="submit" class="btn btn-success btn-lg">
         <i class="bi bi-check-lg"></i> 确认导入
       </button>
     </form>
-    {% if source == 'teacher' %}
-      <a href="{% url 'teacherCourseList' %}" class="btn btn-secondary btn-lg">
-        <i class="bi bi-x-lg"></i> 取消
-      </a>
-    {% else %}
-      <a href="{% url 'import_data' %}" class="btn btn-secondary btn-lg">
-        <i class="bi bi-x-lg"></i> 取消
-      </a>
-    {% endif %}
+    <a href="{% url 'import_data' %}" class="btn btn-secondary btn-lg">
+      <i class="bi bi-x-lg"></i> 取消
+    </a>
   </div>
+
+  <div class="card mb-3">
+    <div class="card-header" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#teacherListCollapse">
+      <strong><i class="bi bi-person-badge"></i> 教师列表（{{ preview.teachers|length }} 人）</strong>
+      <small class="text-muted ms-2">点击展开查看</small>
+      <i class="bi bi-chevron-down float-end"></i>
+    </div>
+    <div class="collapse" id="teacherListCollapse">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light"><tr><th>#</th><th>工号</th><th>姓名</th><th>性别</th><th>状态</th></tr></thead>
+            <tbody>
+            {% for t in preview.teachers %}
+              <tr{% if t.conflict %} class="table-danger"{% endif %}>
+                <td>{{ forloop.counter }}</td>
+                <td>{{ t.number }}</td>
+                <td>{{ t.name }}</td>
+                <td>{{ t.gender }}</td>
+                <td class="{% if t.status == '新建账号' %}status-new{% elif t.conflict %}status-conflict{% else %}status-exist{% endif %}">
+                  {{ t.status }}
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
 {% endif %}
 {% endblock %}
