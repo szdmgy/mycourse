@@ -69,6 +69,7 @@ urlpatterns = [
     path('addStudentToCourseByTeacher/', views.addStudentToCourseByTeacher, name='addStudentToCourseByTeacher'),
     path('downloadStudentListTemplate/', views.downloadStudentListTemplate, name='downloadStudentListTemplate'),
     path('deleteCourse/<str:courseNumber>/<str:courseName>/', views.deleteCourse, name='deleteCourse'),
+    path('download-template/<str:filename>/', views.download_template, name='download_template'),
     #静态资源导入
     re_path(r'^static/(?P<path>.*)$', static.serve,
         {'document_root': settings.STATIC_ROOT}, name='static'),

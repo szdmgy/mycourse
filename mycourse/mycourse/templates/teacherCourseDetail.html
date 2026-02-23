@@ -59,16 +59,14 @@
     <h3 class="mb-0">作业列表</h3>
     <div>
       <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addTaskModal">
-        <i class="bi bi-plus-lg"></i> 添加实验
+        <i class="bi bi-plus-lg"></i> 添加作业
       </button>
       <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#reuseModal" onclick="loadHistoryTasks()">
         <i class="bi bi-arrow-repeat"></i> 从历史复用
       </button>
-      {% if user.is_superuser %}
       <button class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#importTaskModal">
-        <i class="bi bi-file-earmark-arrow-up"></i> 导入实验
+        <i class="bi bi-file-earmark-arrow-up"></i> 导入作业
       </button>
-      {% endif %}
     </div>
   </div>
 
@@ -122,7 +120,7 @@
   </div>
   {% else %}
   <div class="card p-4 text-center">
-    <p style="color:#666;"><i class="bi bi-info-circle"></i> 本课程暂无作业，点击"添加实验"或"从历史复用"开始</p>
+    <p style="color:#666;"><i class="bi bi-info-circle"></i> 本课程暂无作业，点击"添加作业"或"从历史复用"开始</p>
   </div>
   {% endif %}
 </div>
@@ -309,12 +307,12 @@
 
 </div><!-- /tab-content -->
 
-<!-- ════════ 模态框：添加实验 ════════ -->
+<!-- ════════ 模态框：添加作业 ════════ -->
 <div class="modal fade" id="addTaskModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="bi bi-plus-lg"></i> 添加实验</h5>
+        <h5 class="modal-title"><i class="bi bi-plus-lg"></i> 添加作业</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form action="{% url 'addHomework' %}" method="post">
@@ -389,13 +387,12 @@
   </div>
 </div>
 
-{% if user.is_superuser %}
-<!-- ════════ 模态框：导入实验 ════════ -->
+<!-- ════════ 模态框：导入作业 ════════ -->
 <div class="modal fade" id="importTaskModal" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="bi bi-file-earmark-arrow-up"></i> 导入实验（Excel）</h5>
+        <h5 class="modal-title"><i class="bi bi-file-earmark-arrow-up"></i> 导入作业（Excel）</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -404,6 +401,9 @@
           <p class="text-muted" style="font-size:.85rem;">
             Excel 格式：标题 | 内容 | 文件类型(可选, * 为不限) | 显示(Y/N, 可选)<br>
             截止日期自动设为导入日 + 120 天。
+            <a href="{% url 'download_template' '作业导入模板.xlsx' %}" class="text-decoration-none">
+              <i class="bi bi-download"></i> 下载作业导入模板.xlsx
+            </a>
           </p>
           <input type="file" id="importTaskFile" class="form-control" accept=".xls,.xlsx,.xlsm">
           <div id="importTaskError" class="text-danger mt-2" style="display:none;"></div>
@@ -435,7 +435,6 @@
     </div>
   </div>
 </div>
-{% endif %}
 
 {% endblock %}
 

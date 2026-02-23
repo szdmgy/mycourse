@@ -1184,8 +1184,8 @@ def copyTasks(request):
 @require_POST
 def preview_task_import(request):
     """AJAX: 接收 Excel 文件 + courseID，解析后返回预览 JSON，数据存 session。"""
-    if not request.user.is_superuser:
-        return JsonResponse({'error': '仅管理员可执行此操作'}, status=403)
+    if not is_teacher_or_admin(request.user):
+        return JsonResponse({'error': '无权限执行此操作'}, status=403)
 
     course_id = request.POST.get('course_id')
     upload_file = request.FILES.get('file')
@@ -1214,8 +1214,8 @@ def preview_task_import(request):
 @require_POST
 def confirm_task_import(request):
     """AJAX: 从 session 读取预览数据，写入数据库。"""
-    if not request.user.is_superuser:
-        return JsonResponse({'error': '仅管理员可执行此操作'}, status=403)
+    if not is_teacher_or_admin(request.user):
+        return JsonResponse({'error': '无权限执行此操作'}, status=403)
 
     pending = request.session.pop('pending_task_import', None)
     if not pending:
@@ -1231,6 +1231,22 @@ def confirm_task_import(request):
     except Exception as e:
         logger.exception("作业导入写入失败")
         return JsonResponse({'error': f'写入失败：{str(e)}'}, status=500)
+
+
+@login_required
+def download_template(request, filename):
+    """下载导入模板文件"""
+    from django.conf import settings
+    safe_names = {'课程导入模板.xlsx', '作业导入模板.xlsx'}
+    if filename not in safe_names:
+        return HttpResponse('模板不存在', status=404)
+    filepath = os.path.join(settings.BASE_DIR, 'file', '模板', filename)
+    if not os.path.exists(filepath):
+        return HttpResponse('模板文件未找到，请联系管理员', status=404)
+    with open(filepath, 'rb') as f:
+        response = HttpResponse(f.read(), content_type='application/octet-stream')
+        response['Content-Disposition'] = 'attachment;filename=' + filename.encode('utf-8').decode('ISO-8859-1')
+        return response
 
 
 def create_student_user():

@@ -26,7 +26,12 @@
     <span class="badge bg-primary ms-2">含学生名单</span>
   </div>
   <div class="card-body">
-    <p style="font-size:.85rem; color:#666;">上传深大课程 Excel 文件，系统会解析课程信息和学生名单，预览确认后再写入。</p>
+    <p style="font-size:.85rem; color:#666;">
+      上传深大课程 Excel 文件，系统会解析课程信息和学生名单，预览确认后再写入。
+      <a href="{% url 'download_template' '课程导入模板.xlsx' %}" class="text-decoration-none ms-2">
+        <i class="bi bi-download"></i> 下载课程导入模板.xlsx
+      </a>
+    </p>
     <form method="post" action="{% url 'preview_import' %}" enctype="multipart/form-data">
       {% csrf_token %}
       <input type="hidden" name="datatype" value="course">
