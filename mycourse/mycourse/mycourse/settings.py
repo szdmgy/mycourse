@@ -156,5 +156,9 @@ LOGGING = {
             'level': 'INFO',
             'propagate': False,
         },
+        'django.server': {
+            'level': 'WARNING',
+            'propagate': False,
+        },
     },
 }

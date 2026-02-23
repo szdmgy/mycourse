@@ -1,1 +1,1 @@
-修复 show_routes.py 同时显示 127.0.0.1 和局域网 IP；修复日志 logger 避免干扰 runserver 默认输出
+屏蔽 runserver 默认的 URL 编码日志，只保留中间件的中文日志
