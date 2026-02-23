@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
 {% block title %}导入预览 - 实验报告收集系统{% endblock %}
-{% block nav_admin %}active{% endblock %}
+{% if source == 'teacher' %}{% block nav_courses %}active{% endblock %}{% else %}{% block nav_admin %}active{% endblock %}{% endif %}
 
 {% block extra_css %}
 <style>
@@ -18,24 +18,38 @@
 {% block content %}
 <nav aria-label="breadcrumb" class="mb-3">
   <ol class="breadcrumb" style="font-size:.85rem;">
-    <li class="breadcrumb-item"><a href="{% url 'manager' %}">管理员控制台</a></li>
-    <li class="breadcrumb-item"><a href="{% url 'import_data' %}">数据导入</a></li>
+    {% if source == 'teacher' %}
+      <li class="breadcrumb-item"><a href="{% url 'teacherCourseList' %}">我的课程</a></li>
+    {% else %}
+      <li class="breadcrumb-item"><a href="{% url 'manager' %}">管理员控制台</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'import_data' %}">数据导入</a></li>
+    {% endif %}
     <li class="breadcrumb-item active">导入预览</li>
   </ol>
 </nav>
 
 {% if error %}
   <div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> {{ error }}</div>
-  <a href="{% url 'import_data' %}" class="btn btn-primary">
-    <i class="bi bi-arrow-left"></i> 返回重新上传
-  </a>
+  {% if source == 'teacher' %}
+    <a href="{% url 'teacherCourseList' %}" class="btn btn-primary">
+      <i class="bi bi-arrow-left"></i> 返回我的课程
+    </a>
+  {% else %}
+    <a href="{% url 'import_data' %}" class="btn btn-primary">
+      <i class="bi bi-arrow-left"></i> 返回重新上传
+    </a>
+  {% endif %}
 {% endif %}
 
 {% if success %}
   <div class="alert alert-success"><i class="bi bi-check-circle"></i> {{ success }}</div>
   <div class="d-flex gap-2">
-    <a href="{% url 'manager' %}" class="btn btn-primary"><i class="bi bi-house"></i> 返回管理界面</a>
-    <a href="{% url 'import_data' %}" class="btn btn-outline-primary"><i class="bi bi-plus-lg"></i> 继续导入</a>
+    {% if source == 'teacher' %}
+      <a href="{% url 'teacherCourseList' %}" class="btn btn-primary"><i class="bi bi-book"></i> 返回我的课程</a>
+    {% else %}
+      <a href="{% url 'manager' %}" class="btn btn-primary"><i class="bi bi-house"></i> 返回管理界面</a>
+      <a href="{% url 'import_data' %}" class="btn btn-outline-primary"><i class="bi bi-plus-lg"></i> 继续导入</a>
+    {% endif %}
   </div>
 {% endif %}
 
@@ -173,9 +187,15 @@
         <i class="bi bi-check-lg"></i> 确认导入
       </button>
     </form>
-    <a href="{% url 'import_data' %}" class="btn btn-secondary btn-lg">
-      <i class="bi bi-x-lg"></i> 取消
-    </a>
+    {% if source == 'teacher' %}
+      <a href="{% url 'teacherCourseList' %}" class="btn btn-secondary btn-lg">
+        <i class="bi bi-x-lg"></i> 取消
+      </a>
+    {% else %}
+      <a href="{% url 'import_data' %}" class="btn btn-secondary btn-lg">
+        <i class="bi bi-x-lg"></i> 取消
+      </a>
+    {% endif %}
   </div>
 {% endif %}
 {% endblock %}

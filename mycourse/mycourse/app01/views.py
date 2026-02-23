@@ -944,47 +944,49 @@ def preview_import(request):
 
     upload_file = request.FILES.get('upload_file')
     datatype = request.POST.get('datatype', 'course')
+    source = request.POST.get('source', 'admin')
+
+    def _ctx(**extra):
+        ctx = {'name': get_display_name(request.user), 'source': source}
+        ctx.update(extra)
+        return ctx
+
     if not upload_file:
-        return render(request, 'import_preview.html', {
-            'error': '请选择文件',
-            'name': get_display_name(request.user),
-        })
+        return render(request, 'import_preview.html', _ctx(error='请选择文件'))
 
     if datatype == 'course':
         parsed = parse_course_excel(upload_file)
         if 'error' in parsed:
-            return render(request, 'import_preview.html', {
-                'error': parsed['error'],
-                'name': get_display_name(request.user),
-            })
+            return render(request, 'import_preview.html', _ctx(error=parsed['error']))
+
+        if source == 'teacher' and not request.user.is_superuser:
+            teacher_name = request.user.profile.name
+            if teacher_name not in parsed.get('teachers', []):
+                return render(request, 'import_preview.html', _ctx(
+                    error=f'您的姓名（{teacher_name}）不在该课程的教师名单中，无法导入他人课程。'
+                         f'Excel 中的教师为：{"、".join(parsed.get("teachers", []))}'
+                ))
+
         preview = preview_course_import(parsed)
         request.session['import_parsed_data'] = parsed
         request.session['import_datatype'] = 'course'
-        return render(request, 'import_preview.html', {
-            'preview': preview,
-            'datatype': 'course',
-            'name': get_display_name(request.user),
-        })
+        request.session['import_source'] = source
+        return render(request, 'import_preview.html', _ctx(preview=preview, datatype='course'))
+
     elif datatype == 'teacher':
+        if not request.user.is_superuser:
+            return render(request, 'import_preview.html', _ctx(error='仅管理员可导入教师数据'))
         parsed = parse_teacher_excel(upload_file)
         if 'error' in parsed:
-            return render(request, 'import_preview.html', {
-                'error': parsed['error'],
-                'name': get_display_name(request.user),
-            })
+            return render(request, 'import_preview.html', _ctx(error=parsed['error']))
         preview = preview_teacher_import(parsed)
         request.session['import_parsed_data'] = parsed
         request.session['import_datatype'] = 'teacher'
-        return render(request, 'import_preview.html', {
-            'preview': preview,
-            'datatype': 'teacher',
-            'name': get_display_name(request.user),
-        })
+        request.session['import_source'] = source
+        return render(request, 'import_preview.html', _ctx(preview=preview, datatype='teacher'))
+
     else:
-        return render(request, 'import_preview.html', {
-            'error': f'不支持的导入类型：{datatype}',
-            'name': get_display_name(request.user),
-        })
+        return render(request, 'import_preview.html', _ctx(error=f'不支持的导入类型：{datatype}'))
 
 
 @login_required
@@ -996,12 +998,22 @@ def confirm_import(request):
 
     parsed = request.session.pop('import_parsed_data', None)
     datatype = request.session.pop('import_datatype', None)
+    source = request.session.pop('import_source', 'admin')
+
+    def _ctx(**extra):
+        ctx = {'name': get_display_name(request.user), 'source': source}
+        ctx.update(extra)
+        return ctx
 
     if not parsed:
-        return render(request, 'import_preview.html', {
-            'error': '预览数据已过期，请重新上传文件',
-            'name': get_display_name(request.user),
-        })
+        return render(request, 'import_preview.html', _ctx(error='预览数据已过期，请重新上传文件'))
+
+    if source == 'teacher' and datatype == 'course' and not request.user.is_superuser:
+        teacher_name = request.user.profile.name
+        if teacher_name not in parsed.get('teachers', []):
+            return render(request, 'import_preview.html', _ctx(
+                error=f'安全校验失败：您的姓名（{teacher_name}）不在该课程的教师名单中'
+            ))
 
     try:
         if datatype == 'course':
@@ -1017,16 +1029,10 @@ def confirm_import(request):
         else:
             result_msg = '导入完成'
 
-        return render(request, 'import_preview.html', {
-            'success': result_msg,
-            'name': get_display_name(request.user),
-        })
+        return render(request, 'import_preview.html', _ctx(success=result_msg))
     except Exception as e:
         logger.exception("confirm_import 写入失败")
-        return render(request, 'import_preview.html', {
-            'error': f'写入数据库失败：{str(e)}',
-            'name': get_display_name(request.user),
-        })
+        return render(request, 'import_preview.html', _ctx(error=f'写入数据库失败：{str(e)}'))
 
 
 @login_required

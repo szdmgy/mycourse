@@ -3,7 +3,12 @@
 {% block nav_courses %}active{% endblock %}
 
 {% block content %}
-<h2 class="mb-3"><i class="bi bi-book"></i> 我的课程</h2>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="mb-0"><i class="bi bi-book"></i> 我的课程</h2>
+  <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#importCourseModal">
+    <i class="bi bi-file-earmark-excel"></i> 导入课程
+  </button>
+</div>
 
 {% if course %}
   <p class="text-muted-sm mb-3">点击课程卡片进入课程管理</p>
@@ -32,7 +37,41 @@
   </div>
 {% else %}
   <div class="card p-4 text-center">
-    <p style="font-size:1rem; color:#666;"><i class="bi bi-info-circle"></i> 目前你没有开设课程，请通过导入功能添加课程！</p>
+    <p style="font-size:1rem; color:#666;">
+      <i class="bi bi-info-circle"></i> 目前你没有开设课程，点击右上角「导入课程」从学校 Excel 表格导入吧！
+    </p>
   </div>
 {% endif %}
+
+<!-- 导入课程模态框 -->
+<div class="modal fade" id="importCourseModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-file-earmark-excel"></i> 导入课程</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="{% url 'preview_import' %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        <input type="hidden" name="datatype" value="course">
+        <input type="hidden" name="source" value="teacher">
+        <div class="modal-body">
+          <div class="alert alert-info py-2" style="font-size:.85rem;">
+            <i class="bi bi-info-circle"></i>
+            请上传从学校教务系统导出的课程 Excel 文件。系统将自动解析课程信息和学生名单，
+            预览确认后再写入。<strong>只能导入您本人任教的课程。</strong>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">选择课程 Excel 文件</label>
+            <input type="file" class="form-control" name="upload_file" accept=".xls,.xlsx,.xlsm" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-eye"></i> 预览导入</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 {% endblock %}
