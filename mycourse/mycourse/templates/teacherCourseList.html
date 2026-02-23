@@ -2,6 +2,54 @@
 {% block title %}课程列表 - 实验报告收集系统{% endblock %}
 {% block nav_courses %}active{% endblock %}
 
+{% block extra_css %}
+<style>
+  .term-header {
+    cursor: pointer;
+    user-select: none;
+    padding: 10px 16px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background .15s;
+  }
+  .term-header:hover { background: #e9ecef; }
+  .term-header .bi-chevron-up,
+  .term-header .bi-chevron-down { transition: transform .2s; }
+  .course-mini {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    text-decoration: none;
+    color: inherit;
+    transition: box-shadow .15s, border-color .15s;
+  }
+  .course-mini:hover {
+    border-color: #0d6efd;
+    box-shadow: 0 2px 8px rgba(13,110,253,.12);
+    color: inherit;
+  }
+  .course-mini .name {
+    font-weight: 600;
+    font-size: .95rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .course-mini .meta {
+    font-size: .78rem;
+    color: #888;
+    white-space: nowrap;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2 class="mb-0"><i class="bi bi-book"></i> 我的课程</h2>
@@ -10,31 +58,40 @@
   </button>
 </div>
 
-{% if course %}
-  <p class="text-muted-sm mb-3">点击课程卡片进入课程管理</p>
-  <div class="row g-3">
-    {% for item, taskCount in course %}
-    <div class="col-md-6 col-lg-4">
-      <a href="{% url 'teacherCourseChange' item.courseTerm item.courseName item.classNumber %}"
-         class="text-decoration-none">
-        <div class="card h-100">
-          <div class="card-body">
-            <h3 class="card-title mb-2">{{ item.courseName }}</h3>
-            <p class="mb-1" style="font-size:.85rem; color:#666;">
-              {{ item.courseTerm }}<br>
-              班号：{{ item.classNumber }} &nbsp; 教师：{{ item.teachers }}
-            </p>
-          </div>
-          <div class="card-footer d-flex justify-content-between align-items-center"
-               style="background:#f8f9fa;">
-            <span style="font-size:.85rem;">共 {{ taskCount }} 个实验</span>
-            <span class="badge bg-primary rounded-pill">{{ taskCount }}</span>
-          </div>
-        </div>
-      </a>
+{% if term_groups %}
+  <p class="text-muted mb-3" style="font-size:.85rem;">
+    共 {{ total_courses }} 门课程，{{ term_groups|length }} 个学期
+  </p>
+
+  {% for term, courses in term_groups.items %}
+  <div class="mb-3">
+    <div class="term-header" data-bs-toggle="collapse" data-bs-target="#term-{{ forloop.counter }}">
+      <div>
+        <i class="bi bi-calendar3 me-1"></i>
+        <strong>{{ term }}</strong>
+        <span class="badge bg-primary ms-2">{{ courses|length }} 门课</span>
+      </div>
+      <i class="bi {% if forloop.first %}bi-chevron-up{% else %}bi-chevron-down{% endif %}"></i>
     </div>
-    {% endfor %}
+    <div class="collapse {% if forloop.first %}show{% endif %}" id="term-{{ forloop.counter }}">
+      <div class="row g-2 mb-2">
+        {% for c in courses %}
+        <div class="col-sm-6 col-md-4 col-lg-3">
+          <a href="{% url 'teacherCourseChange' c.courseTerm c.courseName c.classNumber %}"
+             class="course-mini">
+            <div style="min-width:0;">
+              <div class="name">{{ c.courseName }}</div>
+              <div class="meta">{{ c.classNumber }}班 · {{ c.teachers }}</div>
+            </div>
+            <span class="badge bg-primary rounded-pill ms-2">{{ c.task_count }}</span>
+          </a>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
   </div>
+  {% endfor %}
+
 {% else %}
   <div class="card p-4 text-center">
     <p style="font-size:1rem; color:#666;">
@@ -74,12 +131,25 @@
     </div>
   </div>
 </div>
+{% endblock %}
 
+{% block extra_js %}
 <script>
 document.querySelector('#importCourseModal form').addEventListener('submit', function() {
   var btn = this.querySelector('button[type="submit"]');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> 正在解析...';
+});
+document.querySelectorAll('.term-header').forEach(function(header) {
+  var target = document.querySelector(header.getAttribute('data-bs-target'));
+  var chevron = header.querySelector('[class*="bi-chevron"]');
+  if (!target || !chevron) return;
+  target.addEventListener('hidden.bs.collapse', function() {
+    chevron.classList.replace('bi-chevron-up', 'bi-chevron-down');
+  });
+  target.addEventListener('shown.bs.collapse', function() {
+    chevron.classList.replace('bi-chevron-down', 'bi-chevron-up');
+  });
 });
 </script>
 {% endblock %}

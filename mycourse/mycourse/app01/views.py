@@ -349,17 +349,24 @@ def teacherGetTaskByCoursename(request, courseTerm, courseName, classNumber):
 
 @login_required
 def teacherCourseList(request):
+    from django.db.models import Count
+    from collections import OrderedDict
+
     isManager = request.user.is_superuser
     if isManager:
-        courses = models.Course.objects.all()
+        courses = models.Course.objects.filter(status='Y')
     else:
-        courses = models.Course.objects.filter(members__user=request.user)
+        courses = models.Course.objects.filter(members__user=request.user, status='Y')
 
-    courseList = [c for c in courses if c.status == 'Y']
-    taskCountList = [models.Task.objects.filter(courseBelongTo=c).count() for c in courseList]
+    courses = courses.annotate(task_count=Count('task')).order_by('-courseTerm', 'courseName')
+
+    term_groups = OrderedDict()
+    for c in courses:
+        term_groups.setdefault(c.courseTerm, []).append(c)
 
     context = {
-        'course': zip(courseList, taskCountList) if courseList else None,
+        'term_groups': term_groups,
+        'total_courses': courses.count(),
         'isManager': isManager,
         'name': get_display_name(request.user),
     }
