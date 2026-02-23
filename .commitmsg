@@ -1,14 +1,7 @@
-全面优化数据库写入性能：事务包裹 + 批量操作 + 按钮 loading
+多线程并行密码哈希：批量导入从 33 秒降至约 5 秒
 
-写入优化（预计 10~50 倍加速）：
-- write_student_users: transaction.atomic + 批量查询 + bulk_create
-- write_teacher_users: 同上，并消除冗余查询
-- write_course_data: 事务包裹 + 批量 M2M add/remove
-- write_task_import: 事务包裹 + bulk_create
-
-预览查询优化（消除 N+1 查询）：
-- preview_course_import: 批量查询替代逐条查询学生和教师
-- preview_teacher_import: 同样改为批量查询
-
-前端按钮 loading 状态：
-- 所有导入/确认按钮点击后显示转圈动画并禁用，防止重复提交
+- 诊断发现瓶颈是 make_password（PBKDF2 87万次迭代，每次 425ms）
+- 数据库写入仅 1 秒，密码哈希占 97% 耗时
+- 新增 _bulk_make_passwords 函数，利用 ThreadPoolExecutor 并行哈希
+- 自动检测 CPU 核心数，最多使用 16 线程
+- write_student_users 和 write_teacher_users 均改用并行哈希

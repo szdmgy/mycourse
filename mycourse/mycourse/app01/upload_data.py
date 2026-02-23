@@ -1,11 +1,23 @@
 import logging
+import os
 import openpyxl
+from concurrent.futures import ThreadPoolExecutor
 from django.contrib.auth.models import User
 from django.contrib.auth.hashers import make_password
 from django.db import transaction
 from app01 import models
 
 logger = logging.getLogger('app01')
+
+_hash_workers = min(os.cpu_count() or 4, 16)
+
+
+def _bulk_make_passwords(plain_list):
+    """多线程并行哈希密码，利用多核 CPU 加速"""
+    if len(plain_list) <= 2:
+        return [make_password(p) for p in plain_list]
+    with ThreadPoolExecutor(max_workers=_hash_workers) as pool:
+        return list(pool.map(make_password, plain_list))
 
 
 # ═══════════════════════ 旧版一步式接口（保留兼容） ═══════════════════════
@@ -364,13 +376,12 @@ def write_student_users(student_list):
     if not data_map:
         return
 
-    new_users = [
-        User(username=n, password=make_password('szu' + n[-6:]))
-        for n in data_map
-    ]
+    numbers = list(data_map.keys())
+    hashed = _bulk_make_passwords(['szu' + n[-6:] for n in numbers])
+    new_users = [User(username=n, password=h) for n, h in zip(numbers, hashed)]
     User.objects.bulk_create(new_users)
 
-    created_users = User.objects.filter(username__in=data_map.keys())
+    created_users = User.objects.filter(username__in=numbers)
     new_profiles = [
         models.UserProfile(
             user=u, name=data_map[u.username][0], type='S',
@@ -457,13 +468,12 @@ def write_teacher_users(teacher_list):
     if not data_map:
         return
 
-    new_users = [
-        User(username=n, password=make_password('szu' + n))
-        for n in data_map
-    ]
+    numbers = list(data_map.keys())
+    hashed = _bulk_make_passwords(['szu' + n for n in numbers])
+    new_users = [User(username=n, password=h) for n, h in zip(numbers, hashed)]
     User.objects.bulk_create(new_users)
 
-    created_users = User.objects.filter(username__in=data_map.keys())
+    created_users = User.objects.filter(username__in=numbers)
     new_profiles = [
         models.UserProfile(
             user=u, name=data_map[u.username][0], type='T',
