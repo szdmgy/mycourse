@@ -15,7 +15,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path,re_path
+from django.urls import path, re_path
 from app01 import views
 
 from django.views import static ##新增
@@ -24,6 +24,8 @@ from app01 import importcourse
 
 
 urlpatterns = [
+    # API：学生作业提交状态（供考勤成绩计算等外部调用）
+    path('api/v1/submission-status/', views.submission_status_api),
     # 用户loading
     path('admin/', admin.site.urls),
     path('login/', views.log_in),

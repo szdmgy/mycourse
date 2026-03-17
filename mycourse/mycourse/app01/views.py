@@ -27,6 +27,97 @@ from mycourse.settings import BASE_DIR, FILES_ROOT
 
 logger = logging.getLogger('app01')
 
+
+# ──────────────────────────── API（外部调用，无 Token） ────────────────────────────
+
+def submission_status_api(request):
+    """
+    学生作业提交状态查询，供考勤成绩计算等外部应用调用。
+    GET 参数：course_term, course_name, class_number, task_title（均需与数据库存储完全一致）
+    返回：课程、作业、每个学生的提交状态（submitted/overdue/not_submitted）及是否逾期
+    """
+    if request.method != 'GET':
+        return JsonResponse({'code': 405, 'message': '仅支持 GET', 'data': None}, status=405)
+
+    course_term = request.GET.get('course_term', '').strip()
+    course_name = request.GET.get('course_name', '').strip()
+    class_number = request.GET.get('class_number', '').strip()
+    task_title = request.GET.get('task_title', '').strip()
+
+    if not all([course_term, course_name, class_number, task_title]):
+        return JsonResponse({
+            'code': 400,
+            'message': '缺少参数，需提供：course_term, course_name, class_number, task_title',
+            'data': None,
+        }, status=400)
+
+    course = models.Course.objects.filter(
+        courseTerm=course_term,
+        courseName=course_name,
+        classNumber=class_number,
+    ).first()
+    if not course:
+        return JsonResponse({
+            'code': 404,
+            'message': f'未找到课程：{course_term} / {course_name} / {class_number}',
+            'data': None,
+        }, status=404)
+
+    task = models.Task.objects.filter(
+        courseBelongTo=course,
+        title=task_title,
+    ).first()
+    if not task:
+        return JsonResponse({
+            'code': 404,
+            'message': f'未找到作业：{task_title}',
+            'data': None,
+        }, status=404)
+
+    students = course.members.filter(type='S').order_by('user__username')
+    homeworks = {hw.user_id: hw for hw in models.Homework.objects.filter(task=task)}
+
+    deadline = task.deadline
+    students_data = []
+    for s in students:
+        hw = homeworks.get(s.id)
+        if hw:
+            submit_date = hw.time.date()
+            delay = submit_date > deadline
+            status = 'overdue' if delay else 'submitted'
+            submit_time = hw.time.isoformat() if hw.time else None
+        else:
+            delay = False
+            status = 'not_submitted'
+            submit_time = None
+
+        students_data.append({
+            'number': s.user.username,
+            'name': s.name,
+            'status': status,
+            'submit_time': submit_time,
+            'delay': delay,
+        })
+
+    return JsonResponse({
+        'code': 0,
+        'message': 'ok',
+        'data': {
+            'course': {
+                'courseTerm': course.courseTerm,
+                'courseNumber': course.courseNumber,
+                'courseName': course.courseName,
+                'classNumber': course.classNumber,
+            },
+            'task': {
+                'title': task.title,
+                'deadline': task.deadline.isoformat(),
+            },
+            'students': students_data,
+        },
+    })
+
+
 # ──────────────────────────── 认证相关 ────────────────────────────
 
 def log_in(request):
