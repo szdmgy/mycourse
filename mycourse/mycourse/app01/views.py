@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import shutil
 import tempfile
 import zipfile
 
@@ -10,6 +11,7 @@ from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.models import User
 from django.http import HttpResponse, HttpResponseRedirect, StreamingHttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_http_methods
@@ -22,7 +24,16 @@ from app01.upload_data import (
     parse_task_excel, write_task_import,
     parse_teacher_excel, preview_teacher_import, write_teacher_users,
 )
-from app01.utils import file_iterator, is_teacher_or_admin, get_display_name, safe_filename
+from app01.utils import (
+    file_iterator,
+    is_teacher_or_admin,
+    get_display_name,
+    safe_filename,
+    can_manage_course,
+    REF_MATERIAL_MAX_BYTES,
+    reference_material_rel_dir,
+    validate_reference_material_filename,
+)
 from mycourse.settings import BASE_DIR, FILES_ROOT
 
 logger = logging.getLogger('app01')
@@ -246,7 +257,7 @@ class TaskDetailForm(forms.ModelForm):
 # ──────────────────────────── 学生端 ────────────────────────────
 
 @login_required
-def taskSubmit(request, taskID, taskTitle):
+def taskSubmit(request, taskID):
     if request.user.profile.type != 'S':
         return HttpResponse("您不是学生，无法进行该操作！")
 
@@ -274,6 +285,11 @@ def studentCourse(request, courseTerm, courseName, classNumber):
     course = models.Course.objects.filter(
         courseTerm=courseTerm, courseName=courseName, classNumber=classNumber
     ).first()
+    if not course:
+        return HttpResponse('课程不存在')
+    if student.type == 'S' and not course.members.filter(pk=student.pk).exists():
+        return HttpResponse('您不是该课程学生')
+
     tasks = models.Task.objects.filter(courseBelongTo=course, display=True)
 
     taskRecords = []
@@ -314,10 +330,15 @@ def studentCourse(request, courseTerm, courseName, classNumber):
                 'has_file': False,
             })
 
+    reference_materials = models.ReferenceMaterial.objects.filter(
+        course=course, display=True
+    ).order_by('sort_order', '-created_at', 'id')
+
     context = {
         'taskRecords': taskRecords,
         'name': get_display_name(request.user),
         'course': course,
+        'reference_materials': reference_materials,
     }
     return render(request, 'studentTaskList.html', context)
 
@@ -726,7 +747,7 @@ def delayRecords(request, courseID):
 
 
 @login_required
-def homeworkRecords(request, taskID, taskTitle):
+def homeworkRecords(request, taskID):
     if not is_teacher_or_admin(request.user):
         return HttpResponse("您没有权限进行该操作！")
     try:
@@ -771,7 +792,7 @@ def homeworkRecords(request, taskID, taskTitle):
         }
         return render(request, 'homeworkRecords.html', context)
     except Task.DoesNotExist:
-        return HttpResponse(f'{taskTitle}不存在')
+        return HttpResponse(f'作业 id={taskID} 不存在')
 
 
 @login_required
@@ -818,13 +839,13 @@ class TaskEditForm(forms.ModelForm):
 
 
 @login_required
-def taskChange(request, taskID, taskTitle):
+def taskChange(request, taskID):
     if not is_teacher_or_admin(request.user):
         return HttpResponse("您没有权限进行该操作！")
     try:
         task = Task.objects.get(id=taskID)
     except Task.DoesNotExist:
-        return HttpResponse(f'{taskTitle}不存在')
+        return HttpResponse(f'作业 id={taskID} 不存在')
 
     if request.method == 'POST':
         form = TaskEditForm(request.POST, instance=task)
@@ -1164,6 +1185,8 @@ def teacher_course_change(request, courseTerm, courseName, classNumber):
     ).first()
     if not course:
         return HttpResponse("课程不存在")
+    if not can_manage_course(request.user, course):
+        return HttpResponse("您无权管理该课程", status=403)
 
     students = course.members.filter(type='S')
     tasks = list(models.Task.objects.filter(courseBelongTo=course))
@@ -1195,14 +1218,400 @@ def teacher_course_change(request, courseTerm, courseName, classNumber):
             'not_submitted_count': len(not_submitted),
         })
 
+    reference_materials = models.ReferenceMaterial.objects.filter(course=course).order_by(
+        'sort_order', '-created_at', 'id'
+    )
+
     context = {
         'task_data': task_data,
         'student_list': students,
         'student_count': students.count(),
         'name': get_display_name(request.user),
         'course': course,
+        'reference_materials': reference_materials,
     }
     return render(request, 'teacherCourseDetail.html', context)
+
+
+def _teacher_course_redirect(course, tab=''):
+    url = reverse(
+        'teacherCourseChange',
+        kwargs={
+            'courseTerm': course.courseTerm,
+            'courseName': course.courseName,
+            'classNumber': course.classNumber,
+        },
+    )
+    if tab:
+        url += f'?tab={tab}'
+    return redirect(url)
+
+
+@login_required
+@require_POST
+def ref_material_save(request):
+    """新增或编辑参考资料（multipart）。"""
+    if not is_teacher_or_admin(request.user):
+        return HttpResponse('无权限', status=403)
+
+    course_id = request.POST.get('course_id')
+    material_id = (request.POST.get('material_id') or '').strip()
+    course = get_object_or_404(models.Course, pk=course_id)
+    if not can_manage_course(request.user, course):
+        return HttpResponse('无权限管理该课程', status=403)
+
+    title = (request.POST.get('title') or '').strip()
+    description = (request.POST.get('description') or '').strip()
+    display = request.POST.get('display') == 'on'
+
+    if not title:
+        return HttpResponse('标题不能为空', status=400)
+
+    rel_dir = reference_material_rel_dir(course)
+    abs_dir = os.path.join(BASE_DIR, rel_dir)
+    os.makedirs(abs_dir, exist_ok=True)
+
+    profile = getattr(request.user, 'profile', None)
+
+    if material_id:
+        mat = get_object_or_404(
+            models.ReferenceMaterial, pk=material_id, course=course
+        )
+        file_obj = request.FILES.get('file')
+        if file_obj:
+            if file_obj.size > REF_MATERIAL_MAX_BYTES:
+                return HttpResponse('文件超过 100 MB 限制', status=400)
+            ok, base, verr = validate_reference_material_filename(file_obj.name)
+            if not ok:
+                return HttpResponse(verr, status=400)
+            if models.ReferenceMaterial.objects.filter(
+                course=course, originalName__iexact=base
+            ).exclude(pk=mat.pk).exists():
+                return HttpResponse(
+                    f'本课程已有其他资料使用文件名「{base}」，请更换文件或先删除/重命名该资料',
+                    status=400,
+                )
+            old_path = mat.abs_path
+            new_abs = os.path.join(BASE_DIR, rel_dir, base)
+            if os.path.normcase(new_abs) != os.path.normcase(old_path) and os.path.lexists(new_abs):
+                return HttpResponse(
+                    f'参考资料目录下已存在同名文件「{base}」，无法保存', status=400
+                )
+            if old_path and os.path.isfile(old_path):
+                try:
+                    os.unlink(old_path)
+                except OSError:
+                    logger.warning('删除旧参考资料文件失败: %s', old_path)
+            rel_path = os.path.join(rel_dir, base)
+            with open(new_abs, 'wb') as out:
+                for chunk in file_obj.chunks():
+                    out.write(chunk)
+            mat.filePath = rel_path
+            mat.originalName = base
+            mat.file_size = file_obj.size
+        mat.title = title
+        mat.description = description
+        mat.display = display
+        mat.save()
+        return _teacher_course_redirect(course, tab='ref')
+
+    file_obj = request.FILES.get('file')
+    if not file_obj:
+        return HttpResponse('请选择附件', status=400)
+    if file_obj.size > REF_MATERIAL_MAX_BYTES:
+        return HttpResponse('文件超过 100 MB 限制', status=400)
+
+    ok, base, verr = validate_reference_material_filename(file_obj.name)
+    if not ok:
+        return HttpResponse(verr, status=400)
+    if models.ReferenceMaterial.objects.filter(
+        course=course, originalName__iexact=base
+    ).exists():
+        return HttpResponse(
+            f'本课程已存在同名文件「{base}」，请更换文件名或删除旧条目后再上传',
+            status=400,
+        )
+    abs_path = os.path.join(BASE_DIR, rel_dir, base)
+    if os.path.lexists(abs_path):
+        return HttpResponse(
+            f'参考资料目录下已存在同名文件「{base}」，请删除磁盘上的该文件或换名后再上传',
+            status=400,
+        )
+
+    rel_path = os.path.join(rel_dir, base)
+    with open(abs_path, 'wb') as out:
+        for chunk in file_obj.chunks():
+            out.write(chunk)
+
+    next_order = models.ReferenceMaterial.objects.filter(course=course).count()
+    models.ReferenceMaterial.objects.create(
+        course=course,
+        title=title,
+        description=description,
+        filePath=rel_path,
+        originalName=base,
+        file_size=file_obj.size,
+        sort_order=next_order,
+        display=display,
+        uploaded_by=profile,
+    )
+    return _teacher_course_redirect(course, tab='ref')
+
+
+@login_required
+@require_POST
+def ref_material_delete(request):
+    if not is_teacher_or_admin(request.user):
+        return HttpResponse('无权限', status=403)
+    material_id = request.POST.get('material_id')
+    mat = get_object_or_404(models.ReferenceMaterial, pk=material_id)
+    course = mat.course
+    if not can_manage_course(request.user, course):
+        return HttpResponse('无权限', status=403)
+    path = mat.abs_path
+    mat.delete()
+    if path and os.path.isfile(path):
+        try:
+            os.unlink(path)
+        except OSError:
+            logger.warning('删除参考资料文件失败: %s', path)
+    _renumber_ref_sort_order(course)
+    return _teacher_course_redirect(course, tab='ref')
+
+
+def _renumber_ref_sort_order(course):
+    rows = list(
+        models.ReferenceMaterial.objects.filter(course=course).order_by(
+            'sort_order', '-created_at', 'id'
+        )
+    )
+    for i, r in enumerate(rows):
+        if r.sort_order != i:
+            r.sort_order = i
+            r.save(update_fields=['sort_order'])
+
+
+@login_required
+@require_POST
+def ref_material_reorder(request):
+    """上移/下移参考资料，按当前列表顺序交换后重新编号 sort_order 为 0..n-1。"""
+    if not is_teacher_or_admin(request.user):
+        return HttpResponse('无权限', status=403)
+    material_id = request.POST.get('material_id')
+    direction = (request.POST.get('direction') or '').strip().lower()
+    if direction not in ('up', 'down'):
+        return HttpResponse('参数错误', status=400)
+
+    mat = get_object_or_404(models.ReferenceMaterial, pk=material_id)
+    course = mat.course
+    if not can_manage_course(request.user, course):
+        return HttpResponse('无权限', status=403)
+
+    rows = list(
+        models.ReferenceMaterial.objects.filter(course=course).order_by(
+            'sort_order', '-created_at', 'id'
+        )
+    )
+    idx = next((i for i, r in enumerate(rows) if r.id == mat.id), None)
+    if idx is None:
+        return _teacher_course_redirect(course, tab='ref')
+    j = idx - 1 if direction == 'up' else idx + 1
+    if j < 0 or j >= len(rows):
+        return _teacher_course_redirect(course, tab='ref')
+
+    rows[idx], rows[j] = rows[j], rows[idx]
+    for i, r in enumerate(rows):
+        if r.sort_order != i:
+            r.sort_order = i
+            r.save(update_fields=['sort_order'])
+
+    return _teacher_course_redirect(course, tab='ref')
+
+
+@login_required
+def download_ref_material(request, material_id):
+    mat = get_object_or_404(models.ReferenceMaterial, pk=material_id)
+    course = mat.course
+    user = request.user
+
+    if is_teacher_or_admin(user):
+        if not can_manage_course(user, course):
+            return HttpResponse('无权限下载', status=403)
+    else:
+        prof = user.profile
+        if prof.type != 'S':
+            return HttpResponse('无权限', status=403)
+        if not mat.display:
+            return HttpResponse('无权限', status=403)
+        if not course.members.filter(pk=prof.pk).exists():
+            return HttpResponse('无权限', status=403)
+
+    file_path = mat.abs_path
+    if not os.path.exists(file_path):
+        return HttpResponse('文件不存在', status=404)
+
+    dl_name = safe_filename(mat.originalName) or os.path.basename(file_path)
+    response = StreamingHttpResponse(file_iterator(file_path))
+    response['Content-Type'] = 'application/octet-stream'
+    response['Content-Disposition'] = (
+        'attachment;filename=' + dl_name.encode('utf-8').decode('ISO-8859-1')
+    )
+    return response
+
+
+@login_required
+def get_history_reference_materials(request, courseID):
+    """同名课程的历史参考资料列表（JSON），规则对齐 getHistoryTasks。"""
+    if not is_teacher_or_admin(request.user):
+        return JsonResponse({'error': '无权限'}, status=403)
+
+    current_course = get_object_or_404(models.Course, pk=courseID)
+
+    if request.user.is_superuser:
+        courses = models.Course.objects.filter(
+            courseName=current_course.courseName
+        ).exclude(pk=courseID)
+    else:
+        courses = models.Course.objects.filter(
+            members__user=request.user,
+            courseName=current_course.courseName,
+        ).exclude(pk=courseID)
+
+    existing_titles = set(
+        models.ReferenceMaterial.objects.filter(course=current_course).values_list(
+            'title', flat=True
+        )
+    )
+    existing_files_lower = {
+        (n or '').lower()
+        for n in models.ReferenceMaterial.objects.filter(course=current_course).values_list(
+            'originalName', flat=True
+        )
+    }
+
+    result = []
+    for course in courses.distinct():
+        materials = models.ReferenceMaterial.objects.filter(course=course).order_by(
+            'sort_order', '-created_at', 'id'
+        )
+        if not materials.exists():
+            continue
+        mlist = []
+        for m in materials:
+            fn_lower = (m.originalName or '').lower()
+            dup_title = m.title in existing_titles
+            dup_file = bool(fn_lower and fn_lower in existing_files_lower)
+            mlist.append({
+                'id': m.id,
+                'title': m.title,
+                'originalName': m.originalName,
+                'duplicate': dup_title or dup_file,
+            })
+        result.append({
+            'courseID': course.id,
+            'courseTerm': course.courseTerm,
+            'courseName': course.courseName,
+            'classNumber': course.classNumber,
+            'materials': mlist,
+        })
+
+    return JsonResponse({'courses': result})
+
+
+@login_required
+@require_POST
+def copy_reference_materials(request):
+    """从同名课程的其它班级/学期复制参考资料（含磁盘文件副本）。"""
+    if not is_teacher_or_admin(request.user):
+        return JsonResponse({'error': '无权限'}, status=403)
+
+    data = json.loads(request.body.decode('utf-8'))
+    target_id = data.get('courseID')
+    material_ids = data.get('materialIDs', [])
+
+    target_course = get_object_or_404(models.Course, pk=target_id)
+    if not can_manage_course(request.user, target_course):
+        return JsonResponse({'error': '无权限管理目标课程'}, status=403)
+
+    existing_titles = set(
+        models.ReferenceMaterial.objects.filter(course=target_course).values_list(
+            'title', flat=True
+        )
+    )
+    existing_files_lower = {
+        (n or '').lower()
+        for n in models.ReferenceMaterial.objects.filter(course=target_course).values_list(
+            'originalName', flat=True
+        )
+    }
+
+    copied = []
+    errors = []
+    profile = getattr(request.user, 'profile', None)
+    rel_dir = reference_material_rel_dir(target_course)
+    abs_dir = os.path.join(BASE_DIR, rel_dir)
+    os.makedirs(abs_dir, exist_ok=True)
+    order_next = models.ReferenceMaterial.objects.filter(course=target_course).count()
+
+    for mid in material_ids:
+        try:
+            src = models.ReferenceMaterial.objects.select_related('course').get(pk=mid)
+        except models.ReferenceMaterial.DoesNotExist:
+            errors.append(f'资料 id={mid} 不存在')
+            continue
+
+        if src.course.courseName != target_course.courseName:
+            errors.append(f'「{src.title}」来源课程名不一致，已跳过')
+            continue
+
+        if not request.user.is_superuser:
+            if not src.course.members.filter(user=request.user).exists():
+                errors.append(f'「{src.title}」无权限从该源课程复制')
+                continue
+
+        if src.title in existing_titles:
+            continue
+
+        src_path = src.abs_path
+        if not os.path.isfile(src_path):
+            errors.append(f'「{src.title}」源文件缺失')
+            continue
+
+        ok, base, verr = validate_reference_material_filename(src.originalName)
+        if not ok:
+            errors.append(f'「{src.title}」文件名不合法：{verr}')
+            continue
+        if base.lower() in existing_files_lower:
+            errors.append(f'「{src.title}」目标课程已有同名文件「{base}」，已跳过')
+            continue
+        dst_abs = os.path.join(BASE_DIR, rel_dir, base)
+        if os.path.lexists(dst_abs):
+            errors.append(f'「{src.title}」目标目录已存在文件「{base}」，已跳过')
+            continue
+        dst_rel = os.path.join(rel_dir, base)
+        try:
+            shutil.copy2(src_path, dst_abs)
+        except OSError as e:
+            errors.append(f'「{src.title}」复制失败：{e}')
+            continue
+
+        models.ReferenceMaterial.objects.create(
+            course=target_course,
+            title=src.title,
+            description=src.description,
+            filePath=dst_rel,
+            originalName=base,
+            file_size=src.file_size,
+            sort_order=order_next,
+            display=src.display,
+            uploaded_by=profile,
+        )
+        order_next += 1
+        copied.append(src.title)
+        existing_titles.add(src.title)
+        existing_files_lower.add(base.lower())
+
+    return JsonResponse({'success': True, 'copied': copied, 'errors': errors})
 
 
 @login_required

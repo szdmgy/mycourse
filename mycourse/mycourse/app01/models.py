@@ -164,5 +164,48 @@ class HomeworkFile(models.Model):
         return f'{self.homework}: {self.originalName}'
 
 
+class ReferenceMaterial(models.Model):
+    """课程参考资料（存放在 file/<学期>/<课程名+班号>/参考资料/ 下）"""
+
+    course = models.ForeignKey(
+        Course, on_delete=models.CASCADE, related_name='reference_materials', verbose_name='所属课程'
+    )
+    title = models.CharField('标题', max_length=200)
+    description = models.TextField('说明', blank=True, default='')
+    filePath = models.CharField('文件路径', max_length=500, default='')
+    originalName = models.CharField('原始文件名', max_length=200, default='')
+    file_size = models.BigIntegerField('文件大小(字节)', default=0)
+    sort_order = models.IntegerField(
+        '排序',
+        default=0,
+        help_text='数字越小越靠前；教师端可用上移/下移调整',
+    )
+    display = models.BooleanField('对学生显示', default=True)
+    uploaded_by = models.ForeignKey(
+        UserProfile, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='上传者'
+    )
+    created_at = models.DateTimeField('上传时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        verbose_name = '参考资料'
+        ordering = ['sort_order', '-created_at', 'id']
+
+    @property
+    def abs_path(self):
+        import os
+        from django.conf import settings
+        if os.path.isabs(self.filePath):
+            return self.filePath
+        return os.path.join(settings.BASE_DIR, self.filePath)
+
+    def size_display(self):
+        from app01.utils import format_file_size
+        return format_file_size(self.file_size)
+
+    def __str__(self):
+        return f'{self.course_id}: {self.title}'
+
+
 
 

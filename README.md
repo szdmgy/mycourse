@@ -29,6 +29,15 @@ python manage.py createsuperuser
 
 双击对应 `.bat` 即可启动，脚本会自动激活虚拟环境并清理端口残留进程。
 
+### Windows 一键部署/升级（Git 同步）
+
+脚本：**`mycourse_deploy_update.bat`**（放在 **Git 仓库根目录**，与 `run_local.bat` 同级；详细步骤见 **[docs/服务器部署升级速查.md](docs/服务器部署升级速查.md)**）
+
+- 每次执行前会显示 Git 根目录、Django 目录（`mycourse/mycourse/`）等信息，并要求输入 **`Y`** 确认，避免误操作。
+- **放在本仓库根目录执行**：进入「升级模式」——在仓库根拉代码，在 **`mycourse/mycourse/`** 内检查 **`.env`** 与 **`db.sqlite3`**，再执行依赖更新、**`migrate`**、**`collectstatic`**（与 `expense_log` 的 `expense_log_deploy_update.bat` 流程对齐，并适配本仓库双层目录）。
+- **放在非项目目录执行**（如 `D:\apps\`）：以 **`脚本目录\mycourse`** 为目标；若无仓库则 **首次部署**（`git clone` + 在 Django 目录创建 **`venv`** + 安装依赖），并提示将 **`.env`**（可从 **`mycourse/mycourse/.env.example`** 复制）、**`db.sqlite3`** 放到 **`mycourse/mycourse/`** 后 **再执行一次**；第二次运行会 **`git pull`**、**`migrate`**、**`collectstatic`**，用迁移把已复制的数据库升级到当前代码版本。
+- 虚拟环境目录名为 **`venv`**，与现有 `run_local.bat` / `start_server.bat` 一致。
+
 ### 默认管理员
 
 - 用户名：`admin`
@@ -38,6 +47,7 @@ python manage.py createsuperuser
 
 - [学生使用说明](docs/使用说明-学生版.md)
 - [教师使用说明](docs/使用说明-教师版.md)
+- [变更记录](docs/变更记录.md)（功能与修复合订，便于对照验收）
 
 ## 三种角色
 

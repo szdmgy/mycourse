@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.http import HttpResponse
 import csv
-from app01.models import UserProfile, Task, Homework, HomeworkFile, Course
+from app01.models import UserProfile, Task, Homework, HomeworkFile, Course, ReferenceMaterial
 
 
 @admin.register(UserProfile)
@@ -51,3 +51,10 @@ class HomeworkFileAdmin(admin.ModelAdmin):
 class CourseAdmin(admin.ModelAdmin):
     list_display = ['id', 'courseTerm', 'courseNumber', 'courseName', 'classNumber', 'teachers', 'status']
     list_filter = ['courseTerm', 'courseName']
+
+
+@admin.register(ReferenceMaterial)
+class ReferenceMaterialAdmin(admin.ModelAdmin):
+    list_display = ['id', 'course', 'title', 'sort_order', 'display', 'file_size', 'created_at']
+    list_filter = ['course', 'display']
+    search_fields = ['title', 'originalName']

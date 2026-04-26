@@ -48,6 +48,11 @@
       <i class="bi bi-people"></i> 学生管理
     </button>
   </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-ref-materials" type="button">
+      <i class="bi bi-folder2-open"></i> 参考资料
+    </button>
+  </li>
 </ul>
 
 <!-- ════════ Tab 内容 ════════ -->
@@ -102,10 +107,10 @@
             <span class="badge bg-info">{{ td.submitted_count }}/{{ td.submitted_count|add:td.not_submitted_count }}</span>
           </td>
           <td>
-            <a href="{% url 'taskChange' td.task.id td.task.title %}" class="btn btn-outline-primary btn-sm" title="编辑">
+            <a href="{% url 'taskChange' td.task.id %}" class="btn btn-outline-primary btn-sm" title="编辑">
               <i class="bi bi-pencil"></i>
             </a>
-            <a href="{% url 'homeworkRecords' td.task.id td.task.title %}" class="btn btn-outline-info btn-sm" title="作业记录">
+            <a href="{% url 'homeworkRecords' td.task.id %}" class="btn btn-outline-info btn-sm" title="作业记录">
               <i class="bi bi-clipboard-data"></i>
             </a>
             <button class="btn btn-outline-danger btn-sm" title="删除"
@@ -305,6 +310,89 @@
   {% endif %}
 </div>
 
+<!-- ═══ Tab 4：参考资料 ═══ -->
+<div class="tab-pane fade" id="tab-ref-materials" role="tabpanel">
+  <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+    <div>
+      <h3 class="mb-1">参考资料</h3>
+      <p class="text-muted mb-0" style="font-size:.85rem;">
+        上传课件、视频、实验指导书、模板等供学生下载。文件以<strong>您上传的原始文件名</strong>保存（不自动改名）；与课程内已有<strong>同名文件</strong>或含 <code>&lt; &gt; : " / \\ | ? *</code> 等非法字符时会<strong>拒绝上传</strong>。单文件不超过 <strong>100 MB</strong>。
+      </p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <button type="button" class="btn btn-primary btn-sm" id="refBtnAdd" data-bs-toggle="modal" data-bs-target="#refMaterialModal">
+        <i class="bi bi-cloud-upload"></i> 上传资料
+      </button>
+      <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#refCopyModal" onclick="loadHistoryRefMaterials()">
+        <i class="bi bi-arrow-repeat"></i> 从其他学期/班级复制
+      </button>
+    </div>
+  </div>
+
+  {% if reference_materials %}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle">
+      <thead class="table-light">
+        <tr>
+          <th style="width:40px;">#</th>
+          <th>标题</th>
+          <th>文件名</th>
+          <th style="width:100px;">大小</th>
+          <th style="width:150px;">上传时间</th>
+          <th style="width:80px;">显示</th>
+          <th style="width:220px;">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in reference_materials %}
+        <tr>
+          <td>{{ forloop.counter }}</td>
+          <td><strong>{{ m.title }}</strong>{% if m.description %}<br><span class="text-muted" style="font-size:.8rem;">{{ m.description|truncatechars:80 }}</span>{% endif %}</td>
+          <td><code>{{ m.originalName }}</code></td>
+          <td>{{ m.size_display }}</td>
+          <td>{{ m.created_at|date:"Y-m-d H:i" }}</td>
+          <td>
+            {% if m.display %}<span class="badge bg-success">显示</span>{% else %}<span class="badge bg-secondary">隐藏</span>{% endif %}
+          </td>
+          <td>
+            <form method="post" action="{% url 'ref_material_reorder' %}" class="d-inline">
+              {% csrf_token %}
+              <input type="hidden" name="material_id" value="{{ m.id }}">
+              <input type="hidden" name="direction" value="up">
+              <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1" title="上移" {% if forloop.first %}disabled{% endif %}><i class="bi bi-chevron-up"></i></button>
+            </form>
+            <form method="post" action="{% url 'ref_material_reorder' %}" class="d-inline">
+              {% csrf_token %}
+              <input type="hidden" name="material_id" value="{{ m.id }}">
+              <input type="hidden" name="direction" value="down">
+              <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1" title="下移" {% if forloop.last %}disabled{% endif %}><i class="bi bi-chevron-down"></i></button>
+            </form>
+            <button type="button" class="btn btn-outline-primary btn-sm btn-ref-edit" title="编辑"
+              data-ref-id="{{ m.id }}"
+              data-ref-title="{{ m.title|escape }}"
+              data-ref-desc="{{ m.description|escape }}"
+              data-ref-display="{% if m.display %}1{% else %}0{% endif %}">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <a href="{% url 'download_ref_material' m.id %}" class="btn btn-outline-secondary btn-sm" title="下载"><i class="bi bi-download"></i></a>
+            <form method="post" action="{% url 'ref_material_delete' %}" class="d-inline" onsubmit="return confirm('确定删除该参考资料？将同时删除文件。');">
+              {% csrf_token %}
+              <input type="hidden" name="material_id" value="{{ m.id }}">
+              <button type="submit" class="btn btn-outline-danger btn-sm" title="删除"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card p-4 text-center">
+    <p style="color:#666;"><i class="bi bi-info-circle"></i> 暂无参考资料，点击「上传资料」或从其他班级复制</p>
+  </div>
+  {% endif %}
+</div>
+
 </div><!-- /tab-content -->
 
 <!-- ════════ 模态框：添加作业 ════════ -->
@@ -430,6 +518,84 @@
         </button>
         <button type="button" class="btn btn-success" id="importConfirmBtn" onclick="doConfirmTaskImport()" style="display:none;">
           <i class="bi bi-check-lg"></i> 确认导入
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ 模态框：参考资料 上传/编辑 ════════ -->
+<div class="modal fade" id="refMaterialModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="refMaterialModalTitle"><i class="bi bi-folder2-open"></i> 上传资料</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="refMaterialForm" method="post" action="{% url 'ref_material_save' %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        <input type="hidden" name="course_id" value="{{ course.id }}">
+        <input type="hidden" name="material_id" id="refMaterialIdField" value="">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">标题 <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" name="title" id="refMaterialTitle" required maxlength="200" placeholder="如：第3章 课件">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">说明</label>
+            <textarea class="form-control" name="description" id="refMaterialDesc" rows="2" maxlength="500" placeholder="选填，简要说明用途"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" id="refMaterialFileLabel">附件 <span class="text-danger">*</span></label>
+            <input type="file" class="form-control" name="file" id="refMaterialFile">
+            <div class="form-text" id="refMaterialFileHint">新建时必须选择文件。单文件最大 100 MB；文件名需合法且本课程内不重名（系统不自动改文件名）。</div>
+          </div>
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" name="display" id="refMaterialVisible" checked>
+            <label class="form-check-label" for="refMaterialVisible">对学生显示（关闭则学生端不显示该条）</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="submit" class="btn btn-primary" id="refMaterialSubmitBtn"><i class="bi bi-check-lg"></i> 确定</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ 模态框：参考资料 从历史复制 ════════ -->
+<div class="modal fade" id="refCopyModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-arrow-repeat"></i> 从其他学期/班级复制参考资料（同名课程）</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="ref-copy-step-class">
+          <p class="text-muted mb-2" style="font-size:.85rem;">请选择来源班级：</p>
+          <div id="refHistoryClassList"></div>
+        </div>
+        <div id="ref-copy-step-items" style="display:none;">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="text-muted" style="font-size:.85rem;" id="refCopyClassInfo"></span>
+            <span>
+              <a href="javascript:void(0)" class="text-primary me-2" style="font-size:.85rem;" onclick="toggleAllRefCopy(true)">全选可导入</a>
+              <a href="javascript:void(0)" class="text-danger" style="font-size:.85rem;" onclick="toggleAllRefCopy(false)">全不选</a>
+            </span>
+          </div>
+          <div id="refHistoryItemList"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" id="refCopyBackBtn" onclick="refCopyGoBack()" style="display:none;">
+          <i class="bi bi-arrow-left"></i> 返回
+        </button>
+        <span id="refCopyCount" class="me-auto text-muted"></span>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="button" class="btn btn-primary" id="refCopySubmitBtn" onclick="submitRefCopy()" style="display:none;">
+          <i class="bi bi-check-lg"></i> 复制到本课程
         </button>
       </div>
     </div>
@@ -702,13 +868,20 @@ document.getElementById('importTaskModal').addEventListener('hidden.bs.modal', f
   document.getElementById('importPreviewBody').innerHTML = '';
 });
 
-/* ── 保持 Tab 状态（刷新后记住选中 Tab） ── */
+/* ── 保持 Tab 状态（刷新后记住选中 Tab；?tab=ref 从上传/编辑返回时打开参考资料） ── */
 (function(){
   var key = 'courseTab_' + COURSE_ID;
-  var saved = sessionStorage.getItem(key);
-  if(saved){
-    var tab = document.querySelector('[data-bs-target="'+saved+'"]');
-    if(tab) new bootstrap.Tab(tab).show();
+  var qp = new URLSearchParams(location.search).get('tab');
+  if(qp === 'ref'){
+    var tref = document.querySelector('[data-bs-target="#tab-ref-materials"]');
+    if(tref) new bootstrap.Tab(tref).show();
+    sessionStorage.setItem(key, '#tab-ref-materials');
+  } else {
+    var saved = sessionStorage.getItem(key);
+    if(saved){
+      var tab = document.querySelector('[data-bs-target="'+saved+'"]');
+      if(tab) new bootstrap.Tab(tab).show();
+    }
   }
   document.querySelectorAll('#courseTab button').forEach(function(btn){
     btn.addEventListener('shown.bs.tab', function(e){
@@ -716,5 +889,166 @@ document.getElementById('importTaskModal').addEventListener('hidden.bs.modal', f
     });
   });
 })();
+
+/* ── 参考资料：上传/编辑/复制 ── */
+var REF_MAX_BYTES = 100 * 1024 * 1024;
+
+function openRefAdd(){
+  document.getElementById('refMaterialModalTitle').innerHTML = '<i class="bi bi-cloud-upload"></i> 上传资料';
+  document.getElementById('refMaterialIdField').value = '';
+  document.getElementById('refMaterialTitle').value = '';
+  document.getElementById('refMaterialDesc').value = '';
+  document.getElementById('refMaterialFile').value = '';
+  document.getElementById('refMaterialVisible').checked = true;
+  document.getElementById('refMaterialFileLabel').innerHTML = '附件 <span class="text-danger">*</span>';
+  document.getElementById('refMaterialFile').required = true;
+  document.getElementById('refMaterialFileHint').textContent = '请选择文件。单文件最大 100 MB。';
+}
+
+function openRefEdit(id, title, desc, display){
+  document.getElementById('refMaterialModalTitle').innerHTML = '<i class="bi bi-pencil"></i> 编辑资料';
+  document.getElementById('refMaterialIdField').value = id;
+  document.getElementById('refMaterialTitle').value = title || '';
+  document.getElementById('refMaterialDesc').value = desc || '';
+  document.getElementById('refMaterialVisible').checked = !!display;
+  document.getElementById('refMaterialFile').value = '';
+  document.getElementById('refMaterialFileLabel').innerHTML = '更换文件 <span class="text-muted">（可选）</span>';
+  document.getElementById('refMaterialFile').required = false;
+    document.getElementById('refMaterialFileHint').textContent = '不选则保留原文件。更换时新文件名须合法且不与本课程其他资料重名。';
+  new bootstrap.Modal(document.getElementById('refMaterialModal')).show();
+}
+
+document.getElementById('refMaterialModal').addEventListener('show.bs.modal', function(ev){
+  var rel = ev.relatedTarget;
+  if(rel && rel.id === 'refBtnAdd')
+    openRefAdd();
+});
+
+document.querySelectorAll('.btn-ref-edit').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    openRefEdit(
+      parseInt(btn.getAttribute('data-ref-id'), 10),
+      btn.getAttribute('data-ref-title') || '',
+      btn.getAttribute('data-ref-desc') || '',
+      btn.getAttribute('data-ref-display') === '1'
+    );
+  });
+});
+
+document.getElementById('refMaterialForm').addEventListener('submit', function(ev){
+  var finput = document.getElementById('refMaterialFile');
+  var mid = document.getElementById('refMaterialIdField').value;
+  if(!mid){
+    if(!finput.files.length){ ev.preventDefault(); alert('请选择附件'); return; }
+    if(finput.files[0].size > REF_MAX_BYTES){ ev.preventDefault(); alert('文件超过 100 MB 限制'); return; }
+  } else if(finput.files.length && finput.files[0].size > REF_MAX_BYTES){
+    ev.preventDefault(); alert('文件超过 100 MB 限制'); return;
+  }
+});
+
+function _refEsc(s){
+  if(!s) return '';
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+var _refHistData = [];
+function loadHistoryRefMaterials(){
+  document.getElementById('ref-copy-step-class').style.display = '';
+  document.getElementById('ref-copy-step-items').style.display = 'none';
+  document.getElementById('refCopyBackBtn').style.display = 'none';
+  document.getElementById('refCopySubmitBtn').style.display = 'none';
+  document.getElementById('refCopyCount').textContent = '';
+  document.getElementById('refHistoryClassList').innerHTML =
+    '<div class="text-center py-3"><div class="spinner-border text-primary"></div><p class="mt-2">加载中...</p></div>';
+
+  $.getJSON('{% url "getHistoryRefMaterials" course.id %}', function(data){
+    _refHistData = data.courses || [];
+    if(!_refHistData.length){
+      document.getElementById('refHistoryClassList').innerHTML =
+        '<p class="text-muted text-center">没有同名课程的历史参考资料可复制</p>';
+      return;
+    }
+    var h = '';
+    _refHistData.forEach(function(c, idx){
+      h += '<div class="card mb-2" style="cursor:pointer;" onclick="selectRefHistClass('+idx+')">';
+      h += '<div class="card-body py-3 d-flex justify-content-between align-items-center">';
+      h += '<span><i class="bi bi-folder2-open me-2"></i><strong>'+c.classNumber+'班</strong> — '+_refEsc(c.courseTerm)+'</span>';
+      h += '<span class="badge bg-primary">'+c.materials.length+' 个文件 <i class="bi bi-chevron-right"></i></span>';
+      h += '</div></div>';
+    });
+    document.getElementById('refHistoryClassList').innerHTML = h;
+  }).fail(function(){
+    document.getElementById('refHistoryClassList').innerHTML = '<p class="text-danger">加载失败</p>';
+  });
+}
+
+function selectRefHistClass(idx){
+  var c = _refHistData[idx];
+  document.getElementById('ref-copy-step-class').style.display = 'none';
+  document.getElementById('ref-copy-step-items').style.display = '';
+  document.getElementById('refCopyBackBtn').style.display = '';
+  document.getElementById('refCopySubmitBtn').style.display = '';
+  document.getElementById('refCopyClassInfo').textContent = '来源：' + c.classNumber + '班 — ' + c.courseTerm;
+
+  var h = '<div class="list-group list-group-flush">';
+  c.materials.forEach(function(m){
+    var dup = m.duplicate;
+    h += '<label class="list-group-item d-flex align-items-center gap-2 py-1' + (dup ? ' text-muted' : '') + '">';
+    if(dup){
+      h += '<input type="checkbox" class="form-check-input ref-copy-chk" value="'+m.id+'" disabled>';
+      h += '<span><s>'+_refEsc(m.title)+'</s> <span class="badge bg-warning text-dark" style="font-size:.7rem;">标题或同名文件已存在</span>';
+      h += ' <span class="text-muted" style="font-size:.75rem;">'+_refEsc(m.originalName)+'</span></span>';
+    } else {
+      h += '<input type="checkbox" class="form-check-input ref-copy-chk" value="'+m.id+'" checked onchange="updateRefCopyCount()">';
+      h += '<span>'+_refEsc(m.title)+' <span class="text-muted" style="font-size:.75rem;">'+_refEsc(m.originalName)+'</span></span>';
+    }
+    h += '</label>';
+  });
+  h += '</div>';
+  document.getElementById('refHistoryItemList').innerHTML = h;
+  updateRefCopyCount();
+}
+
+function refCopyGoBack(){
+  document.getElementById('ref-copy-step-class').style.display = '';
+  document.getElementById('ref-copy-step-items').style.display = 'none';
+  document.getElementById('refCopyBackBtn').style.display = 'none';
+  document.getElementById('refCopySubmitBtn').style.display = 'none';
+  document.getElementById('refCopyCount').textContent = '';
+}
+
+function toggleAllRefCopy(checked){
+  document.querySelectorAll('.ref-copy-chk:not(:disabled)').forEach(function(c){ c.checked = checked; });
+  updateRefCopyCount();
+}
+
+function updateRefCopyCount(){
+  var n = document.querySelectorAll('.ref-copy-chk:checked').length;
+  document.getElementById('refCopyCount').textContent = n ? '已选 ' + n + ' 项' : '';
+}
+
+function submitRefCopy(){
+  var ids = [];
+  document.querySelectorAll('.ref-copy-chk:checked').forEach(function(c){ ids.push(parseInt(c.value, 10)); });
+  if(!ids.length){ alert('请先勾选要复制的资料'); return; }
+  $.ajax({
+    url: '{% url "copyRefMaterials" %}',
+    type: 'POST',
+    contentType: 'application/json',
+    headers: {'X-CSRFToken': CSRF},
+    data: JSON.stringify({courseID: COURSE_ID, materialIDs: ids}),
+    success: function(d){
+      if(d.success){
+        var msg = '成功复制 ' + d.copied.length + ' 条：\n' + d.copied.join('\n');
+        if(d.errors && d.errors.length) msg += '\n\n提示：\n' + d.errors.join('\n');
+        alert(msg);
+        location.reload();
+      } else { alert('复制失败'); }
+    },
+    error: function(){ alert('复制失败'); }
+  });
+}
 </script>
 {% endblock %}

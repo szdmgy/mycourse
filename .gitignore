@@ -9,6 +9,10 @@ venv/
 # Database
 db.sqlite3
 db.sqlite3.bak
+db-old.sqlite3
+
+# Cursor / 本地
+.cursor/
 
 # IDE
 .idea/

@@ -1,7 +1,13 @@
 {% extends "base.html" %}
 {% load static %}
-{% block title %}{{ course.courseName }} - 作业列表{% endblock %}
+{% block title %}{{ course.courseName }} - 我的课程{% endblock %}
 {% block nav_stu_courses %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .nav-tabs .nav-link { font-size: .95rem; }
+</style>
+{% endblock %}
 
 {% block content %}
 <nav aria-label="breadcrumb" class="mb-3">
@@ -22,58 +28,115 @@
   </div>
 </div>
 
-<h2 class="mb-3"><i class="bi bi-list-task"></i> 作业列表</h2>
+<ul class="nav nav-tabs mb-3" id="stuCourseTab" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#stu-tab-tasks" type="button">
+      <i class="bi bi-list-task"></i> 作业列表
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#stu-tab-refs" type="button">
+      <i class="bi bi-folder2-open"></i> 参考资料
+    </button>
+  </li>
+</ul>
 
-{% if taskRecords %}
-<div class="table-responsive">
-  <table class="table table-hover align-middle">
-    <thead class="table-light">
-      <tr>
-        <th style="width:40px;">#</th>
-        <th>作业名称</th>
-        <th>截止日期</th>
-        <th>提交状态</th>
-        <th>提交时间</th>
-        <th style="width:120px;">操作</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in taskRecords %}
-      <tr>
-        <td>{{ forloop.counter }}</td>
-        <td><strong>{{ r.title }}</strong></td>
-        <td>{{ r.deadline|date:"Y-m-d" }}</td>
-        <td>
-          {% if r.status == 'submitted' %}
-            <span class="badge badge-submitted"><i class="bi bi-check-circle"></i> {{ r.status_text }}</span>
-          {% elif r.status == 'pending' %}
-            <span class="badge badge-pending"><i class="bi bi-clock"></i> {{ r.status_text }}</span>
-          {% elif r.status == 'delay_submitted' %}
-            <span class="badge badge-delay"><i class="bi bi-exclamation-triangle"></i> {{ r.status_text }}</span>
-          {% elif r.status == 'overdue' %}
-            <span class="badge badge-overdue"><i class="bi bi-x-circle"></i> {{ r.status_text }}</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if r.time %}
-            {{ r.time|date:"Y-m-d H:i" }}
-          {% else %}
-            <span style="color:#999;">—</span>
-          {% endif %}
-        </td>
-        <td>
-          <a href="{% url 'taskSubmit' r.id r.title %}" class="btn btn-primary btn-sm">
-            <i class="bi bi-upload"></i> 提交
-          </a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% else %}
-  <div class="card p-4 text-center">
-    <p style="color:#666;"><i class="bi bi-info-circle"></i> 本课程暂无作业</p>
+<div class="tab-content">
+  <div class="tab-pane fade show active" id="stu-tab-tasks" role="tabpanel">
+    <h2 class="mb-3"><i class="bi bi-list-task"></i> 作业列表</h2>
+
+    {% if taskRecords %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead class="table-light">
+          <tr>
+            <th style="width:40px;">#</th>
+            <th>作业名称</th>
+            <th>截止日期</th>
+            <th>提交状态</th>
+            <th>提交时间</th>
+            <th style="width:120px;">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in taskRecords %}
+          <tr>
+            <td>{{ forloop.counter }}</td>
+            <td><strong>{{ r.title }}</strong></td>
+            <td>{{ r.deadline|date:"Y-m-d" }}</td>
+            <td>
+              {% if r.status == 'submitted' %}
+                <span class="badge badge-submitted"><i class="bi bi-check-circle"></i> {{ r.status_text }}</span>
+              {% elif r.status == 'pending' %}
+                <span class="badge badge-pending"><i class="bi bi-clock"></i> {{ r.status_text }}</span>
+              {% elif r.status == 'delay_submitted' %}
+                <span class="badge badge-delay"><i class="bi bi-exclamation-triangle"></i> {{ r.status_text }}</span>
+              {% elif r.status == 'overdue' %}
+                <span class="badge badge-overdue"><i class="bi bi-x-circle"></i> {{ r.status_text }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if r.time %}
+                {{ r.time|date:"Y-m-d H:i" }}
+              {% else %}
+                <span style="color:#999;">—</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{% url 'taskSubmit' r.id %}" class="btn btn-primary btn-sm">
+                <i class="bi bi-upload"></i> 提交
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <div class="card p-4 text-center">
+        <p style="color:#666;"><i class="bi bi-info-circle"></i> 本课程暂无作业</p>
+      </div>
+    {% endif %}
   </div>
-{% endif %}
+
+  <div class="tab-pane fade" id="stu-tab-refs" role="tabpanel">
+    <h2 class="mb-3"><i class="bi bi-folder2-open"></i> 参考资料</h2>
+    <p class="text-muted" style="font-size:.85rem;">以下为教师发布的资料，可直接下载（单文件最大 100 MB）。</p>
+
+    {% if reference_materials %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead class="table-light">
+          <tr>
+            <th style="width:40px;">#</th>
+            <th>标题</th>
+            <th>文件名</th>
+            <th style="width:100px;">大小</th>
+            <th style="width:150px;">上传时间</th>
+            <th style="width:100px;">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in reference_materials %}
+          <tr>
+            <td>{{ forloop.counter }}</td>
+            <td><strong>{{ m.title }}</strong>{% if m.description %}<br><span class="text-muted" style="font-size:.8rem;">{{ m.description|truncatechars:100 }}</span>{% endif %}</td>
+            <td><code>{{ m.originalName }}</code></td>
+            <td>{{ m.size_display }}</td>
+            <td>{{ m.created_at|date:"Y-m-d H:i" }}</td>
+            <td>
+              <a href="{% url 'download_ref_material' m.id %}" class="btn btn-primary btn-sm"><i class="bi bi-download"></i> 下载</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="card p-4 text-center">
+      <p style="color:#666;"><i class="bi bi-info-circle"></i> 暂无参考资料</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
 {% endblock %}
