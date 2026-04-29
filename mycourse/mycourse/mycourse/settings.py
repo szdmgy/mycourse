@@ -132,6 +132,17 @@ TEMPLATE_DIRS = (os.path.join(BASE_DIR,  'templates'),)
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# 与同机其它 Django/ Web 共用同一 IP 时，浏览器不会因端口拆分 Cookie，
+# 默认的 sessionid / csrftoken 会被其它站点覆盖 → 本会话失效并触发登录跳转。
+SESSION_COOKIE_NAME = 'mycourse_sessionid'
+CSRF_COOKIE_NAME = 'mycourse_csrftoken'
+
+# @login_required 未登录跳转地址须与 urlpatterns 中登录页一致，否则跳到不存在的 /accounts/login/ → 404
+LOGIN_URL = '/login/'
+
+# 参考资料等单文件最大 500 MB 时，请求体需允许该量级（默认约 2.5MB 会触发 RequestDataTooBig）
+DATA_UPLOAD_MAX_MEMORY_SIZE = 500 * 1024 * 1024
+
 # 取消严格的网页限制
 SECURE_CONTENT_TYPE_NOSNIFF = False
 
