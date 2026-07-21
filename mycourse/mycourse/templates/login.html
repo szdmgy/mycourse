@@ -130,5 +130,21 @@
     </div>
 
 
+
+<script>
+/* 退出登录会回到本页：清掉本标签页内的 F 提醒标记，下次登录可再弹 */
+(function(){
+  try {
+    var keys = [];
+    for (var i = 0; i < sessionStorage.length; i++) {
+      var k = sessionStorage.key(i);
+      if (k && k.indexOf('mycourse_f_warn_') === 0) keys.push(k);
+    }
+    keys.forEach(function(k){ sessionStorage.removeItem(k); });
+  } catch (e) {}
+})();
+</script>
+<!-- clear F warn markers -->
+
 </body>
 </html>

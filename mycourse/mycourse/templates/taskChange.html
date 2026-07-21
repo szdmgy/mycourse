@@ -80,7 +80,44 @@
           <div class="col-md-6">
             <label class="form-label" for="id_fileType">{{ form.fileType.label }}</label>
             {{ form.fileType }}
-            <div class="form-text">如 .docx,.pdf,.zip 或 * 表示不限</div>
+            {% if form.fileType.errors %}
+            <div class="text-danger small">{{ form.fileType.errors|striptags }}</div>
+            {% endif %}
+            <div class="form-text">如 .docx,.pdf,.zip 或 * 表示不限。<strong>禁止填写 .doc</strong>（请用 .docx）</div>
+          </div>
+        </div>
+
+
+        <hr>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label" for="id_precheck_mode">{{ form.precheck_mode.label }}</label>
+            {{ form.precheck_mode }}
+            <div class="form-text">继承课程时：仅当本作业有报告模板才会做封面预检；无模板不预检。专用模式可强制开启。</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="id_precheck_fail_mode">{{ form.precheck_fail_mode.label }}</label>
+            {{ form.precheck_fail_mode }}
+          </div>
+          <div class="col-12">
+            <div class="alert alert-light border py-2 small mb-0">
+              <div><strong>当前生效：</strong>
+                {% if precheck_plan.do_cover or precheck_plan.do_framework %}
+                  {% if precheck_plan.do_cover %}封面预检 {% endif %}
+                  {% if precheck_plan.do_framework %}框架预检 {% endif %}
+                  （{{ precheck_plan.fail_mode }}）
+                {% else %}
+                  不预检{% if precheck_plan.skip_reason %} — {{ precheck_plan.skip_reason }}{% endif %}
+                {% endif %}
+              </div>
+              <div class="mt-1">框架预检规则包：
+                {% if has_precheck_package %}
+                  已注入{% if task.precheck_package_version %}（v{{ task.precheck_package_version }}）{% endif %}
+                {% else %}
+                  未配置（由 API / Agent 注入）
+                {% endif %}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -91,15 +128,99 @@
       </form>
     </div>
   </div>
+
+
+  <div class="card mb-3" id="template-card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <strong><i class="bi bi-file-earmark-word"></i> 报告模板</strong>
+      <span class="text-muted" style="font-size:.8rem;">与「参考资料」分开；可覆盖课程默认模板</span>
+    </div>
+    <div class="card-body">
+      {% if not template_allowed %}
+      <div class="alert alert-warning py-2 small mb-0">
+        <i class="bi bi-exclamation-triangle"></i>
+        本作业允许的文件类型为 <code>{{ task.fileType }}</code>，未包含 <code>.docx</code>。
+        报告模板仅适用于 Word 报告作业；若学生交的是 zip 等，请不要挂模板。
+      </div>
+      {% else %}
+
+      
+      {% if inherits_course_template %}
+      <div class="alert alert-info py-2 small mb-3">
+        <i class="bi bi-info-circle"></i> 本作业当前<strong>继承课程默认报告模板</strong>。
+        若本实验格式不同，可在下方上传专用模板覆盖；否则无需再传。
+      </div>
+      {% endif %}
+      <p class="text-muted small mb-3">
+        上传完整 <code>.docx</code> 实验报告模板。开启自动填写后，学生下载时会按标准封面写入课程名称、学院/专业、指导教师、报告人/学号/班级等（实验时间与提交时间不改）（支持 <code>{% templatetag openvariable %}姓名{% templatetag closevariable %}</code> 等占位符，也兼容「报告人 / 学号 / 班级」空白行）。
+      </p>
+      <div id="tpl-empty" style="{% if has_template %}display:none{% endif %}">
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          <input type="file" id="tplFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="form-control form-control-sm" style="max-width:360px;">
+          <button type="button" class="btn btn-outline-primary btn-sm" id="btnTplUpload"><i class="bi bi-cloud-upload"></i> 上传模板</button>
+        </div>
+        <div class="form-text">单文件不超过 {{ template_max_mb }}MB；上传后默认开启「允许下载」与「自动填封面」。</div>
+      </div>
+      <div id="tpl-ready" style="{% if not has_template %}display:none{% endif %}">
+        <div class="mb-2">
+          <i class="bi bi-check-circle-fill text-success"></i>
+          <strong id="tplName">{{ task.template_original_name }}</strong>
+          <span class="text-muted small ms-2" id="tplTime">{% if task.template_uploaded_at %}上传于 {{ task.template_uploaded_at|date:"Y-m-d H:i" }}{% endif %}</span>
+        </div>
+        <div class="form-check form-switch mb-1">
+          <input class="form-check-input" type="checkbox" id="swDownload" {% if task.enable_template_download %}checked{% endif %}>
+          <label class="form-check-label" for="swDownload">允许学生下载模板</label>
+        </div>
+        <div class="form-check form-switch mb-3">
+          <input class="form-check-input" type="checkbox" id="swAutofill" {% if task.enable_cover_autofill %}checked{% endif %}>
+          <label class="form-check-label" for="swAutofill">下载时自动填写封面</label>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          <a class="btn btn-outline-secondary btn-sm" href="{% url 'downloadTaskTemplateMaster' task.id %}"><i class="bi bi-download"></i> 下载母版</a>
+          <a class="btn btn-outline-secondary btn-sm" href="{% url 'downloadTaskTemplate' task.id %}" title="按当前登录账号试填封面"><i class="bi bi-person-down"></i> 试下载（自动填）</a>
+          <label class="btn btn-outline-primary btn-sm mb-0">
+            <i class="bi bi-arrow-repeat"></i> 替换
+            <input type="file" id="tplReplace" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+          </label>
+          <button type="button" class="btn btn-outline-danger btn-sm" id="btnTplDelete"><i class="bi bi-trash"></i> 删除</button>
+        </div>
+      </div>
+      <div id="tplMsg" class="small mt-2" style="display:none;"></div>
+      {% endif %}
+    </div>
+  </div>
+
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+{% if form.fileType.errors %}
+alert("系统不支持旧版 Word（.doc）文件，请使用 .docx 格式。\n请在允许类型中填写 .docx，不要填写 .doc。");
+{% endif %}
+function isLegacyDocName(name){
+  name = (name || '').toLowerCase();
+  return name.endsWith('.doc') && !name.endsWith('.docx');
+}
+function fileTypeSettingHasDoc(ft){
+  ft = (ft || '').toLowerCase();
+  var parts = ft.split(',');
+  for (var i=0; i<parts.length; i++){
+    var tok = parts[i].trim().replace(/^\./,'');
+    if (tok === 'doc') return true;
+  }
+  return false;
+}
 var ORIGINAL_TITLE = '{{ original_title|escapejs }}';
 var SUBMITTED_COUNT = {{ submitted_count }};
 
 document.getElementById('taskEditForm').addEventListener('submit', function(e){
+  var ftEl = document.getElementById('id_fileType');
+  if (ftEl && fileTypeSettingHasDoc(ftEl.value)) {
+    alert('系统不支持旧版 Word（.doc）文件，请使用 .docx 格式。\n请在允许类型中填写 .docx，不要填写 .doc。');
+    e.preventDefault();
+    return;
+  }
   var newTitle = document.getElementById('id_title').value.trim();
   if(SUBMITTED_COUNT > 0 && newTitle !== ORIGINAL_TITLE){
     var msg = '⚠ 已有 ' + SUBMITTED_COUNT + ' 名学生提交了作业。\n' +
@@ -109,5 +230,83 @@ document.getElementById('taskEditForm').addEventListener('submit', function(e){
     }
   }
 });
+
+var CSRFXML = (document.querySelector('[name=csrfmiddlewaretoken]') || {}).value || '';
+function tplMsg(text, ok){
+  var el = document.getElementById('tplMsg');
+  if(!el) return;
+  el.style.display = '';
+  el.className = 'small mt-2 ' + (ok ? 'text-success' : 'text-danger');
+  el.textContent = text;
+}
+function showTplReady(data){
+  document.getElementById('tpl-empty').style.display = 'none';
+  document.getElementById('tpl-ready').style.display = '';
+  if (data.original_name) document.getElementById('tplName').textContent = data.original_name;
+  if (data.uploaded_at) document.getElementById('tplTime').textContent = '上传于 ' + data.uploaded_at;
+  document.getElementById('swDownload').checked = !!data.enable_template_download;
+  document.getElementById('swAutofill').checked = !!data.enable_cover_autofill;
+}
+function uploadTpl(fileInput){
+  if (!fileInput.files || !fileInput.files.length) { alert('请选择 .docx 文件'); return; }
+  if (isLegacyDocName(fileInput.files[0].name)) {
+    alert('系统不支持旧版 Word（.doc）文件，模板请使用 .docx 格式。');
+    fileInput.value = '';
+    return;
+  }
+  var name = fileInput.files[0].name.toLowerCase();
+  if (!name.endsWith('.docx')) {
+    alert('仅支持 .docx 模板文件。');
+    fileInput.value = '';
+    return;
+  }
+  var fd = new FormData();
+  fd.append('file', fileInput.files[0]);
+  fd.append('csrfmiddlewaretoken', CSRFXML);
+  fetch('{% url "uploadTaskTemplate" task.id %}', { method:'POST', body: fd, credentials:'same-origin' })
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      if (!j.ok) { tplMsg(j.error || '上传失败', false); return; }
+      showTplReady(j);
+      tplMsg('模板已上传', true);
+      fileInput.value = '';
+    })
+    .catch(function(){ tplMsg('上传失败', false); });
+}
+(function(){
+  var btn = document.getElementById('btnTplUpload');
+  if(!btn) return;
+  btn.addEventListener('click', function(){ uploadTpl(document.getElementById('tplFile')); });
+  document.getElementById('tplReplace').addEventListener('change', function(){ uploadTpl(this); });
+  document.getElementById('btnTplDelete').addEventListener('click', function(){
+    if (!confirm('确定删除本作业报告模板？')) return;
+    var fd = new FormData();
+    fd.append('csrfmiddlewaretoken', CSRFXML);
+    fetch('{% url "deleteTaskTemplate" task.id %}', { method:'POST', body: fd, credentials:'same-origin' })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if (!j.ok) { tplMsg(j.error || '删除失败', false); return; }
+        document.getElementById('tpl-ready').style.display = 'none';
+        document.getElementById('tpl-empty').style.display = '';
+        tplMsg('模板已删除', true);
+      });
+  });
+  function saveSwitches(){
+    fetch('{% url "updateTaskTemplateSettings" task.id %}', {
+      method:'POST', credentials:'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRFXML },
+      body: JSON.stringify({
+        enable_template_download: document.getElementById('swDownload').checked,
+        enable_cover_autofill: document.getElementById('swAutofill').checked
+      })
+    }).then(function(r){ return r.json(); })
+      .then(function(j){
+        if (!j.ok) { tplMsg(j.error || '保存失败', false); return; }
+        tplMsg('开关已保存', true);
+      });
+  }
+  document.getElementById('swDownload').addEventListener('change', saveSwitches);
+  document.getElementById('swAutofill').addEventListener('change', saveSwitches);
+})();
 </script>
 {% endblock %}

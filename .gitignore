@@ -31,3 +31,7 @@ Desktop.ini
 # Byte-compiled / optimized
 *.py[cod]
 *$py.class
+
+# 本地大文件 / 预览缓存
+LibreOfficePortable/
+previews/

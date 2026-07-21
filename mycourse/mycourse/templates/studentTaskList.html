@@ -17,6 +17,23 @@
   </ol>
 </nav>
 
+
+{% if has_fail_need_action %}
+<div class="alert alert-danger d-flex align-items-center gap-2" role="alert">
+  <i class="bi bi-exclamation-octagon-fill fs-4"></i>
+  <div>
+    <strong>成绩提醒：</strong>你有作业被评为<strong>不合格（F）</strong>，请查看红色标记行并尽快重新提交。
+  </div>
+</div>
+{% elif has_fail_pending_regrade %}
+<div class="alert alert-warning d-flex align-items-center gap-2" role="alert">
+  <i class="bi bi-hourglass-split fs-4"></i>
+  <div>
+    <strong>已重新提交：</strong>不合格作业已重交，成绩在教师重评前仍计为不合格，请耐心等待。
+  </div>
+</div>
+{% endif %}
+
 <div class="card mb-3">
   <div class="card-body py-2">
     <div class="row" style="font-size:.85rem; color:#555;">
@@ -54,13 +71,15 @@
             <th>作业名称</th>
             <th>截止日期</th>
             <th>提交状态</th>
-            <th>提交时间</th>
-            <th style="width:120px;">操作</th>
+            <th>预检</th>
+            <th>首次提交</th>
+            <th>最后更新</th>
+            <th style="width:220px;">操作</th>
           </tr>
         </thead>
         <tbody>
           {% for r in taskRecords %}
-          <tr>
+          <tr class="{% if r.fail_need_action %}table-danger{% elif r.needs_regrade %}table-warning{% endif %}" data-task-id="{{ r.id }}" data-fail="{% if r.fail_visible %}1{% else %}0{% endif %}" data-fail-action="{% if r.fail_need_action %}1{% else %}0{% endif %}" data-fail-comment="{{ r.grade_comment|escape }}">
             <td>{{ forloop.counter }}</td>
             <td><strong>{{ r.title }}</strong></td>
             <td>{{ r.deadline|date:"Y-m-d" }}</td>
@@ -74,18 +93,82 @@
               {% elif r.status == 'overdue' %}
                 <span class="badge badge-overdue"><i class="bi bi-x-circle"></i> {{ r.status_text }}</span>
               {% endif %}
+              {% if r.fail_need_action %}
+                <span class="badge bg-danger ms-1 grade-fail-badge">
+                  <i class="bi bi-exclamation-octagon"></i> 不合格·请重交
+                </span>
+              {% elif r.needs_regrade %}
+                <span class="badge bg-warning text-dark ms-1">
+                  <i class="bi bi-hourglass-split"></i> 已重交·待重评
+                </span>
+              {% endif %}
+              {% if r.fail_visible and r.grade_comment %}
+                <div class="mt-1 small {% if r.fail_need_action %}text-danger{% else %}text-muted{% endif %}" style="max-width:280px; line-height:1.35;">
+                  <strong>教师评语：</strong>{{ r.grade_comment }}
+                </div>
+              {% endif %}
+              {% if r.precheck_warn_active %}
+                <div class="mt-1">
+                  <span class="badge bg-warning text-dark" title="{{ r.precheck_warn_text|escape }}">
+                    <i class="bi bi-exclamation-triangle"></i> 预检警告
+                  </span>
+                  {% if r.precheck_warn_text %}
+                  <div class="small text-warning-emphasis mt-1" style="max-width:280px; white-space:pre-wrap; line-height:1.35;">{{ r.precheck_warn_text }}</div>
+                  {% endif %}
+                </div>
+              {% endif %}
             </td>
             <td>
-              {% if r.time %}
-                {{ r.time|date:"Y-m-d H:i" }}
+              {% if r.precheck.active %}
+                <span class="badge {% if r.precheck.kind == 'both' %}bg-primary{% elif r.precheck.kind == 'framework' %}bg-warning text-dark{% else %}bg-info text-dark{% endif %}"
+                      title="提交时将检查{% if r.precheck.do_cover %}封面{% endif %}{% if r.precheck.do_cover and r.precheck.do_framework %}与{% endif %}{% if r.precheck.do_framework %}报告框架{% endif %}；{{ r.precheck.fail_label }}">
+                  <i class="bi bi-shield-check"></i> {{ r.precheck.label }}
+                </span>
+                <div class="text-muted" style="font-size:.7rem;">{{ r.precheck.fail_label }}</div>
+              {% else %}
+                <span class="text-muted" style="font-size:.8rem;">—</span>
+              {% endif %}
+              {% if r.precheck_warn_active %}
+                <div class="mt-1"><span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle"></i> 有警告</span></div>
+              {% endif %}
+            </td>
+            <td>
+              {% if r.submitted_at %}
+                {{ r.submitted_at|date:"Y-m-d H:i" }}
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% if r.updated_at %}
+                {{ r.updated_at|date:"Y-m-d H:i" }}
               {% else %}
                 <span style="color:#999;">—</span>
               {% endif %}
             </td>
             <td>
-              <a href="{% url 'taskSubmit' r.id %}" class="btn btn-primary btn-sm">
-                <i class="bi bi-upload"></i> 提交
-              </a>
+              <div class="d-flex flex-wrap gap-1">
+                {% if r.template_download %}
+                  <a href="{% url 'downloadTaskTemplate' r.id %}" class="btn btn-outline-success btn-sm" title="下载本实验报告模板">
+                    <i class="bi bi-file-earmark-word"></i> 下载模板
+                  </a>
+                {% endif %}
+                {% if r.has_file and r.file_id %}
+                  {% if r.previewable %}
+                  <a href="{% url 'preview_homework_file' r.file_id %}" target="_blank" class="btn btn-outline-secondary btn-sm" title="在线预览">
+                    <i class="bi bi-eye"></i> 预览
+                  </a>
+                  {% endif %}
+                  <a href="{% url 'download_homework_file' r.file_id %}" class="btn btn-outline-primary btn-sm" title="下载已提交文件">
+                    <i class="bi bi-download"></i> 下载
+                  </a>
+                  <a href="{% url 'taskSubmit' r.id %}" class="btn btn-outline-secondary btn-sm" title="重新上传覆盖">
+                    <i class="bi bi-arrow-repeat"></i> 重新提交
+                  </a>
+                {% else %}
+                  <a href="{% url 'taskSubmit' r.id %}" class="btn btn-primary btn-sm">
+                    <i class="bi bi-upload"></i> 提交
+                  </a>
+                {% endif %}
+              </div>
             </td>
           </tr>
           {% endfor %}
@@ -139,4 +222,65 @@
     {% endif %}
   </div>
 </div>
+
+{% if has_fail_need_action %}
+<div class="modal fade" id="failGradeModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-danger">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title"><i class="bi bi-exclamation-octagon-fill"></i> 不合格成绩提醒</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="failGradeModalBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">我知道了，去重新提交</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function(){
+  var fails = [];
+  document.querySelectorAll('tr[data-fail-action="1"]').forEach(function(tr){
+    fails.push({
+      id: tr.getAttribute('data-task-id'),
+      title: (tr.querySelector('td strong') || {}).textContent || ('作业'+tr.getAttribute('data-task-id')),
+      comment: tr.getAttribute('data-fail-comment') || ''
+    });
+  });
+  if(!fails.length) return;
+
+  var user = '{{ student_username|escapejs }}';
+  var sid = '{{ f_warn_session|escapejs }}';
+  var pending = fails.filter(function(f){
+    return !sessionStorage.getItem('mycourse_f_warn_' + sid + '_' + user + '_' + f.id);
+  });
+  if(!pending.length) return;
+
+  var html = pending.map(function(f){
+    var line = '<p class="mb-2"><strong>「' + f.title + '」</strong> 被评为 <span class="badge bg-danger">不合格（F）</span>，请重新提交报告。';
+    if (f.comment) line += '<br><span class="text-muted">评语：' + f.comment + '</span>';
+    line += '</p>';
+    return line;
+  }).join('');
+  var body = document.getElementById('failGradeModalBody');
+  var modalEl = document.getElementById('failGradeModal');
+  if (body && modalEl && window.bootstrap) {
+    body.innerHTML = html;
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+  } else {
+    alert('成绩提醒\n\n' + pending.map(function(f){
+      return '「' + f.title + '」不合格，请重新提交' + (f.comment ? ('\n评语：' + f.comment) : '');
+    }).join('\n\n'));
+  }
+  pending.forEach(function(f){
+    sessionStorage.setItem('mycourse_f_warn_' + sid + '_' + user + '_' + f.id, '1');
+  });
+})();
+</script>
 {% endblock %}

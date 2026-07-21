@@ -83,6 +83,33 @@ class Course(models.Model):
     # 开设状态
     status = models.CharField('开设状态', max_length=10, choices=OPEN_CHOICES, default=u'Y')
 
+    # 课程默认报告模板（全课共用一份；作业可再上传专用模板覆盖）
+    report_template_path = models.CharField('课程默认报告模板路径', max_length=500, blank=True, default='')
+    report_template_original_name = models.CharField('课程默认模板文件名', max_length=255, blank=True, default='')
+    report_template_uploaded_at = models.DateTimeField('课程默认模板上传时间', null=True, blank=True)
+    enable_report_template_download = models.BooleanField('课程默认：允许下载模板', default=False)
+    enable_report_cover_autofill = models.BooleanField('课程默认：自动填封面', default=False)
+
+    # 预检总开关：off=关闭；cover_default=默认封面预检（仅对有模板的作业生效）
+    PRECHECK_MASTER_OFF = 'off'
+    PRECHECK_MASTER_COVER = 'cover_default'
+    PRECHECK_MASTER_CHOICES = (
+        (PRECHECK_MASTER_OFF, '关闭预检'),
+        (PRECHECK_MASTER_COVER, '默认开启封面预检'),
+    )
+    precheck_master = models.CharField(
+        '预检总开关', max_length=20, choices=PRECHECK_MASTER_CHOICES, default=PRECHECK_MASTER_OFF,
+    )
+    PRECHECK_FAIL_BLOCK = 'block'
+    PRECHECK_FAIL_WARN = 'warn'
+    PRECHECK_FAIL_CHOICES = (
+        (PRECHECK_FAIL_BLOCK, '硬拦截'),
+        (PRECHECK_FAIL_WARN, '仅警告'),
+    )
+    precheck_cover_mode = models.CharField(
+        '默认封面预检失败策略', max_length=10, choices=PRECHECK_FAIL_CHOICES, default=PRECHECK_FAIL_BLOCK,
+    )
+
     class Meta:
         verbose_name = "课程"
 
@@ -112,6 +139,45 @@ class Task(models.Model):
     fileType = models.CharField('允许的文件类型', max_length=50, default='*',
                                 help_text='如 .docx,.pdf,.zip 或 * 表示不限')
 
+    # 报告模板（作业级完整 .docx；与参考资料目录分离）
+    template_path = models.CharField('报告模板路径', max_length=500, blank=True, default='',
+                                     help_text='相对 BASE_DIR，目录为 file/.../报告模板/<作业标题>/')
+    template_original_name = models.CharField('模板原始文件名', max_length=255, blank=True, default='')
+    template_uploaded_at = models.DateTimeField('模板上传时间', null=True, blank=True)
+    enable_template_download = models.BooleanField('允许学生下载模板', default=False)
+    enable_cover_autofill = models.BooleanField('下载时自动填封面', default=False)
+
+    # 预检：inherit=跟随课程；off=关闭；cover/framework/cover_and_framework=作业专用
+    PRECHECK_INHERIT = 'inherit'
+    PRECHECK_OFF = 'off'
+    PRECHECK_COVER = 'cover'
+    PRECHECK_FRAMEWORK = 'framework'
+    PRECHECK_BOTH = 'cover_and_framework'
+    PRECHECK_MODE_CHOICES = (
+        (PRECHECK_INHERIT, '继承课程'),
+        (PRECHECK_OFF, '关闭预检'),
+        (PRECHECK_COVER, '仅封面预检'),
+        (PRECHECK_FRAMEWORK, '仅框架预检'),
+        (PRECHECK_BOTH, '封面+框架预检'),
+    )
+    precheck_mode = models.CharField(
+        '预检模式', max_length=32, choices=PRECHECK_MODE_CHOICES, default=PRECHECK_INHERIT,
+    )
+    PRECHECK_FAIL_INHERIT = 'inherit'
+    PRECHECK_FAIL_BLOCK = 'block'
+    PRECHECK_FAIL_WARN = 'warn'
+    PRECHECK_FAIL_CHOICES = (
+        (PRECHECK_FAIL_INHERIT, '继承课程'),
+        (PRECHECK_FAIL_BLOCK, '硬拦截'),
+        (PRECHECK_FAIL_WARN, '仅警告'),
+    )
+    precheck_fail_mode = models.CharField(
+        '预检失败策略', max_length=10, choices=PRECHECK_FAIL_CHOICES, default=PRECHECK_FAIL_INHERIT,
+    )
+    precheck_package_json = models.TextField('框架预检规则JSON', blank=True, default='')
+    precheck_package_version = models.CharField('框架预检包版本', max_length=64, blank=True, default='')
+    precheck_package_updated_at = models.DateTimeField('框架预检包更新时间', null=True, blank=True)
+
     class Meta:
         verbose_name = "作业"
         constraints = [
@@ -128,13 +194,111 @@ class Task(models.Model):
 class Homework(models.Model):
     user = models.ForeignKey(UserProfile, on_delete=models.CASCADE, default='')
     task = models.ForeignKey(Task, on_delete=models.CASCADE, default='')
-    time = models.DateTimeField(auto_now=True)
+    submitted_at = models.DateTimeField('首次提交时间', null=True, blank=True)
+    updated_at = models.DateTimeField('最后更新时间', null=True, blank=True)
+    # 仅警告模式下确认后仍提交：保留警告直至下次预检通过
+    precheck_warn_active = models.BooleanField('预检警告中', default=False)
+    precheck_warn_text = models.TextField('预检警告内容', blank=True, default='')
+    precheck_warned_at = models.DateTimeField('预检警告时间', null=True, blank=True)
 
     class Meta:
         verbose_name = "提交记录"
 
     def __str__(self):
         return f'{self.user} - {self.task}'
+
+    @property
+    def is_late(self):
+        """逾期按首次提交日期相对作业截止日期判定。"""
+        if not self.submitted_at or not self.task_id:
+            return False
+        return self.submitted_at.date() > self.task.deadline
+
+
+
+
+class HomeworkGrade(models.Model):
+    """定性批改结果（只存库，不写回报告文件）。"""
+
+    GRADE_A_PLUS = 'A+'
+    GRADE_A = 'A'
+    GRADE_B = 'B'
+    GRADE_C = 'C'
+    GRADE_D = 'D'
+    GRADE_F = 'F'
+    LETTER_CHOICES = (
+        (GRADE_A_PLUS, 'A+'),
+        (GRADE_A, 'A'),
+        (GRADE_B, 'B'),
+        (GRADE_C, 'C'),
+        (GRADE_D, 'D'),
+        (GRADE_F, 'F（不合格）'),
+    )
+    VALID_LETTERS = {c[0] for c in LETTER_CHOICES}
+
+    homework = models.OneToOneField(
+        Homework, on_delete=models.CASCADE, related_name='grade', verbose_name='提交记录'
+    )
+    letter_grade = models.CharField('等级', max_length=2, choices=LETTER_CHOICES)
+    score = models.PositiveSmallIntegerField(
+        '参考分', null=True, blank=True,
+        help_text='可选，0–100 整数；仅教师可见，不参与不合格判定',
+    )
+    comment = models.TextField('评语', blank=True, default='')
+    graded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='grades_given', verbose_name='批改人',
+    )
+    graded_at = models.DateTimeField('首次批改时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+    needs_regrade = models.BooleanField(
+        '待重评', default=False,
+        help_text='学生在不合格(F)后重新提交时置 True，教师再次保存等级后清除',
+    )
+
+    class Meta:
+        verbose_name = '定性成绩'
+
+    def __str__(self):
+        return f'{self.homework_id}: {self.letter_grade}'
+
+    @property
+    def is_fail(self):
+        return self.letter_grade == self.GRADE_F
+
+    def visible_to_student(self):
+        """当前规则：仅 F 对学生可见。"""
+        return self.is_fail
+
+
+class ImpersonationLog(models.Model):
+    """超级管理员切换用户身份的审计记录。"""
+
+    ACTION_START = 'start'
+    ACTION_STOP = 'stop'
+    ACTION_CHOICES = (
+        (ACTION_START, '开始切换'),
+        (ACTION_STOP, '结束切换'),
+    )
+
+    impersonator = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='impersonation_actions',
+        verbose_name='真实操作者',
+    )
+    target_user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='impersonated_as',
+        verbose_name='模拟身份',
+    )
+    action = models.CharField('动作', max_length=10, choices=ACTION_CHOICES)
+    ip_address = models.GenericIPAddressField('IP', null=True, blank=True)
+    created_at = models.DateTimeField('时间', auto_now_add=True)
+
+    class Meta:
+        verbose_name = '身份切换审计'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.impersonator_id}->{self.target_user_id} {self.action}'
 
 
 class HomeworkFile(models.Model):

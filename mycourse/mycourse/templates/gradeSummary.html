@@ -1,0 +1,190 @@
+﻿{% extends "base.html" %}
+{% load static %}
+{% block title %}成绩汇总 - {{ task.title }}{% endblock %}
+{% block nav_courses %}active{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb" style="font-size:.85rem;">
+    <li class="breadcrumb-item"><a href="{% url 'teacherCourseList' %}">课程列表</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'teacherCourseChange' course.courseTerm course.courseName course.classNumber %}">{{ course.courseName }}</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'homeworkRecords' task.id %}">作业记录</a></li>
+    <li class="breadcrumb-item active">成绩汇总</li>
+  </ol>
+</nav>
+
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+  <h2 class="mb-0"><i class="bi bi-bar-chart"></i> 成绩汇总 — {{ task.title }}</h2>
+  <div class="d-flex gap-2">
+    <a href="{% url 'homeworkRecords' task.id %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-pencil"></i> 继续批改</a>
+    <a href="{% url 'gradeSummaryExport' task.id %}" class="btn btn-outline-primary btn-sm"><i class="bi bi-download"></i> 导出 Excel</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-6 col-md-2"><div class="card text-center"><div class="card-body py-3"><div class="text-muted small">应交</div><div class="fs-4 fw-bold">{{ summary.expected }}</div></div></div></div>
+  <div class="col-6 col-md-2"><div class="card text-center"><div class="card-body py-3"><div class="text-muted small">已提交</div><div class="fs-4 fw-bold">{{ summary.submitted }}</div></div></div></div>
+  <div class="col-6 col-md-2"><div class="card text-center border-success"><div class="card-body py-3"><div class="text-muted small">已批改</div><div class="fs-4 fw-bold text-success">{{ summary.graded }}</div></div></div></div>
+  <div class="col-6 col-md-2"><div class="card text-center"><div class="card-body py-3"><div class="text-muted small">未批改</div><div class="fs-4 fw-bold text-secondary">{{ summary.ungraded }}</div></div></div></div>
+  <div class="col-6 col-md-2"><div class="card text-center border-danger"><div class="card-body py-3"><div class="text-muted small">不合格 F</div><div class="fs-4 fw-bold text-danger">{{ summary.fail_count }}</div></div></div></div>
+  <div class="col-6 col-md-2"><div class="card text-center border-warning"><div class="card-body py-3"><div class="text-muted small">待重评</div><div class="fs-4 fw-bold text-warning">{{ summary.needs_regrade_count }}</div></div></div></div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header"><strong>等级分布</strong>
+    <span class="text-muted small ms-2">占比分母 = 应交总人数（{{ summary.expected }}）</span>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0 align-middle">
+      <thead class="table-light">
+        <tr><th>等级</th><th>人数</th><th style="width:40%;">占比</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for d in summary.distribution %}
+        <tr>
+          <td><strong>{{ d.letter }}</strong></td>
+          <td>{{ d.count }}</td>
+          <td>
+            <div class="progress" style="height:1.1rem;">
+              <div class="progress-bar {% if d.letter == 'F' %}bg-danger{% else %}bg-primary{% endif %}"
+                   style="width:{% if summary.expected %}{{ d.percent }}{% else %}0{% endif %}%">
+                {% if d.count %}{{ d.percent }}%{% endif %}
+              </div>
+            </div>
+          </td>
+          <td><a class="small" data-bs-toggle="collapse" href="#list-{{ forloop.counter }}">查看名单</a></td>
+        </tr>
+        <tr class="collapse" id="list-{{ forloop.counter }}">
+          <td colspan="4" class="bg-light">
+            {% if d.students %}
+            <ul class="mb-0 small" style="columns:3;">
+              {% for s in d.students %}
+              <li>{{ s.number }} {{ s.name }}{% if s.needs_regrade %} <span class="badge bg-warning text-dark">待重评</span>{% endif %}</li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <span class="text-muted small">无人</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header"><strong>人数比例</strong>
+    <span class="text-muted small ms-2">分母 = 应交总人数（{{ summary.expected }}）；未批改/未提交为 0 时不显示</span>
+  </div>
+  <div class="card-body">
+    {% if summary.pie_slices %}
+    <div class="row align-items-center g-3">
+      <div class="col-md-5 text-center">
+        <svg id="grade-pie" viewBox="0 0 200 200" width="240" height="240" role="img" aria-label="成绩比例饼图"></svg>
+      </div>
+      <div class="col-md-7">
+        <ul class="list-unstyled mb-0" id="grade-pie-legend">
+          {% for s in summary.pie_slices %}
+          <li class="d-flex align-items-center gap-2 mb-2" style="font-size:.95rem;">
+            <span style="display:inline-block;width:14px;height:14px;border-radius:2px;background:{{ s.color }};"></span>
+            <span style="min-width:4.5rem;">{{ s.label }}</span>
+            <span class="text-muted">{{ s.count }} 人（{{ s.percent }}%）</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% else %}
+    <p class="text-muted mb-0 small">暂无数据</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header"><strong>未批改（已提交）</strong> <span class="badge bg-secondary">{{ summary.ungraded_list|length }}</span></div>
+      <div class="card-body">
+        {% if summary.ungraded_list %}
+        <ul class="mb-0 small" style="columns:2;">
+          {% for s in summary.ungraded_list %}
+          <li>{{ s.number }} {{ s.name }}</li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-muted mb-0 small">无</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100 border-danger">
+      <div class="card-header"><strong>不合格 F</strong> <span class="badge bg-danger">{{ summary.fail_list|length }}</span></div>
+      <div class="card-body">
+        {% if summary.fail_list %}
+        <ul class="mb-0 small">
+          {% for s in summary.fail_list %}
+          <li>{{ s.number }} {{ s.name }}{% if s.comment %} — {{ s.comment }}{% endif %}{% if s.needs_regrade %} <span class="badge bg-warning text-dark">待重评</span>{% endif %}</li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-muted mb-0 small">无</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if summary.pie_slices %}
+<script>
+(function(){
+  // 用 data 属性传 JSON，避免 Django 默认转义破坏结构
+  var slices = [
+    {% for s in summary.pie_slices %}
+    {label: "{{ s.label|escapejs }}", count: {{ s.count }}, percent: {{ s.percent }}, color: "{{ s.color|escapejs }}"}{% if not forloop.last %},{% endif %}
+    {% endfor %}
+  ];
+  var svg = document.getElementById('grade-pie');
+  if (!svg || !slices.length) return;
+
+  var cx = 100, cy = 100, r = 90;
+  var total = slices.reduce(function(a, s){ return a + s.count; }, 0);
+  if (!total) return;
+
+  function polar(angle, radius){
+    var rad = (angle - 90) * Math.PI / 180;
+    return [cx + radius * Math.cos(rad), cy + radius * Math.sin(rad)];
+  }
+
+  var angle = 0;
+  slices.forEach(function(s){
+    var sweep = 360 * s.count / total;
+    var start = angle;
+    var end = angle + sweep;
+    angle = end;
+    var large = sweep > 180 ? 1 : 0;
+    var p0 = polar(start, r);
+    var p1 = polar(end, r);
+    var d;
+    if (Math.abs(sweep - 360) < 0.01) {
+      // 整圆：画两个半圆弧
+      var mid = polar(start + 180, r);
+      d = ['M', p0[0], p0[1], 'A', r, r, 0, 1, 1, mid[0], mid[1], 'A', r, r, 0, 1, 1, p0[0], p0[1], 'Z'].join(' ');
+    } else {
+      d = ['M', cx, cy, 'L', p0[0], p0[1], 'A', r, r, 0, large, 1, p1[0], p1[1], 'Z'].join(' ');
+    }
+    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', s.color);
+    path.setAttribute('stroke', '#fff');
+    path.setAttribute('stroke-width', '1.5');
+    path.innerHTML = '<title>' + s.label + '：' + s.count + '人（' + s.percent + '%）</title>';
+    svg.appendChild(path);
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

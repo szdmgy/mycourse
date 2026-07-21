@@ -75,6 +75,80 @@
     </div>
   </div>
 
+
+  <div class="card mb-3" id="course-template-card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <strong><i class="bi bi-file-earmark-word"></i> 课程默认报告模板</strong>
+      <span class="text-muted" style="font-size:.8rem;">全课共用一份；某实验需要不同模板时，再到该作业编辑页上传专用模板</span>
+    </div>
+    <div class="card-body py-3">
+      {% csrf_token %}
+      <div id="course-tpl-empty" style="{% if has_course_template %}display:none{% endif %}">
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          <input type="file" id="courseTplFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="form-control form-control-sm" style="max-width:360px;">
+          <button type="button" class="btn btn-outline-primary btn-sm" id="btnCourseTplUpload"><i class="bi bi-cloud-upload"></i> 上传全课模板</button>
+        </div>
+        <div class="form-text">适用于「整门课报告格式相同」的情况。上传后未设置专用模板的作业将自动使用此模板（仅对允许提交 .docx 的作业生效；纯 zip 作业不会出现下载模板）。</div>
+      </div>
+      <div id="course-tpl-ready" style="{% if not has_course_template %}display:none{% endif %}">
+        <div class="mb-2">
+          <i class="bi bi-check-circle-fill text-success"></i>
+          <strong id="courseTplName">{{ course.report_template_original_name }}</strong>
+          <span class="text-muted small ms-2" id="courseTplTime">{% if course.report_template_uploaded_at %}上传于 {{ course.report_template_uploaded_at|date:"Y-m-d H:i" }}{% endif %}</span>
+        </div>
+        <div class="form-check form-switch mb-1">
+          <input class="form-check-input" type="checkbox" id="swCourseDownload" {% if course.enable_report_template_download %}checked{% endif %}>
+          <label class="form-check-label" for="swCourseDownload">允许学生下载（对继承本模板的作业生效）</label>
+        </div>
+        <div class="form-check form-switch mb-2">
+          <input class="form-check-input" type="checkbox" id="swCourseAutofill" {% if course.enable_report_cover_autofill %}checked{% endif %}>
+          <label class="form-check-label" for="swCourseAutofill">下载时自动填写封面</label>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          <a class="btn btn-outline-secondary btn-sm" href="{% url 'downloadCourseTemplateMaster' course.id %}"><i class="bi bi-download"></i> 下载母版</a>
+          <label class="btn btn-outline-primary btn-sm mb-0">
+            <i class="bi bi-arrow-repeat"></i> 替换
+            <input type="file" id="courseTplReplace" accept=".docx" hidden>
+          </label>
+          <button type="button" class="btn btn-outline-danger btn-sm" id="btnCourseTplDelete"><i class="bi bi-trash"></i> 删除</button>
+        </div>
+      </div>
+      <div id="courseTplMsg" class="small mt-2" style="display:none;"></div>
+    </div>
+  </div>
+
+
+  <div class="card mb-3" id="course-precheck-card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <strong><i class="bi bi-shield-check"></i> 报告预检（课程总开关）</strong>
+      <span class="text-muted" style="font-size:.8rem;">默认封面预检仅对<strong>已有报告模板</strong>的作业生效；无模板不预检</span>
+    </div>
+    <div class="card-body py-3">
+      {% csrf_token %}
+      <div class="row g-3 align-items-end">
+        <div class="col-md-5">
+          <label class="form-label">预检总开关</label>
+          <select class="form-select form-select-sm" id="coursePrecheckMaster">
+            <option value="off" {% if course.precheck_master == 'off' %}selected{% endif %}>关闭预检</option>
+            <option value="cover_default" {% if course.precheck_master == 'cover_default' %}selected{% endif %}>默认开启封面预检</option>
+          </select>
+        </div>
+        <div class="col-md-5">
+          <label class="form-label">封面预检失败时</label>
+          <select class="form-select form-select-sm" id="coursePrecheckFail">
+            <option value="block" {% if course.precheck_cover_mode == 'block' %}selected{% endif %}>硬拦截（不可提交）</option>
+            <option value="warn" {% if course.precheck_cover_mode == 'warn' %}selected{% endif %}>仅警告（可确认后提交）</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <button type="button" class="btn btn-outline-primary btn-sm w-100" id="btnSaveCoursePrecheck">保存</button>
+        </div>
+      </div>
+      <div class="form-text mt-2">作业可单独覆盖为关闭/仅封面/仅框架/封面+框架。框架预检须在作业上通过 API 注入规则包。</div>
+      <div id="coursePrecheckMsg" class="small mt-2" style="display:none;"></div>
+    </div>
+  </div>
+
   {% if task_data %}
   <div class="table-responsive">
     <table class="table table-hover align-middle">
@@ -83,6 +157,8 @@
           <th style="width:40px;">#</th>
           <th>标题</th>
           <th>文件类型</th>
+          <th>报告模板</th>
+          <th>预检</th>
           <th>显示</th>
           <th>截止日期</th>
           <th>已交/总人数</th>
@@ -95,6 +171,36 @@
           <td>{{ forloop.counter }}</td>
           <td><strong>{{ td.task.title }}</strong></td>
           <td><code>{{ td.task.fileType }}</code></td>
+          <td>
+            {% if not td.template_allowed %}
+              <span class="text-muted" style="font-size:.8rem;" title="非 .docx 作业">不适用</span>
+            {% elif td.task.template_path %}
+              {% if td.task.enable_template_download %}
+              <span class="badge bg-success" title="{{ td.task.template_original_name }}">专用·可下载</span>
+              {% else %}
+              <span class="badge bg-secondary" title="{{ td.task.template_original_name }}">专用·未开放</span>
+              {% endif %}
+            {% elif has_course_template %}
+              {% if course.enable_report_template_download %}
+              <span class="badge bg-info text-dark">课程默认</span>
+              {% else %}
+              <span class="badge bg-secondary">课程默认·未开放</span>
+              {% endif %}
+            {% else %}
+              <span class="text-muted" style="font-size:.8rem;">无模板</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if td.precheck.active %}
+              <span class="badge {% if td.precheck.kind == 'both' %}bg-primary{% elif td.precheck.kind == 'framework' %}bg-warning text-dark{% else %}bg-info text-dark{% endif %}"
+                    title="配置：{{ td.precheck.config_label }}；失败：{{ td.precheck.fail_label }}{% if td.precheck.do_framework and not td.precheck.has_package %}；框架包未注入{% endif %}">
+                {{ td.precheck.label }}
+              </span>
+              <div class="text-muted" style="font-size:.7rem;">{{ td.precheck.fail_label }}</div>
+            {% else %}
+              <span class="text-muted" style="font-size:.8rem;" title="{{ td.precheck.skip_reason }}{% if td.precheck.config_label %}（{{ td.precheck.config_label }}）{% endif %}">不预检</span>
+            {% endif %}
+          </td>
           <td>
             {% if td.task.display %}
               <span class="badge bg-success">显示</span>
@@ -110,8 +216,11 @@
             <a href="{% url 'taskChange' td.task.id %}" class="btn btn-outline-primary btn-sm" title="编辑">
               <i class="bi bi-pencil"></i>
             </a>
-            <a href="{% url 'homeworkRecords' td.task.id %}" class="btn btn-outline-info btn-sm" title="作业记录">
+            <a href="{% url 'homeworkRecords' td.task.id %}" class="btn btn-outline-info btn-sm" title="作业记录/批改">
               <i class="bi bi-clipboard-data"></i>
+            </a>
+            <a href="{% url 'gradeSummary' td.task.id %}" class="btn btn-outline-success btn-sm" title="成绩汇总">
+              <i class="bi bi-bar-chart"></i>
             </a>
             <button class="btn btn-outline-danger btn-sm" title="删除"
                     onclick="deleteTask({{ td.task.id }}, '{{ td.task.title|escapejs }}')">
@@ -160,7 +269,7 @@
           <div class="table-responsive">
             <table class="table table-sm table-hover align-middle">
               <thead class="table-light">
-                <tr><th>#</th><th>学号</th><th>姓名</th><th>性别</th><th>提交时间</th><th>附件</th><th>状态</th><th>选择</th></tr>
+                <tr><th>#</th><th>学号</th><th>姓名</th><th>性别</th><th>首次提交</th><th>最后更新</th><th>附件</th><th>状态</th><th>选择</th></tr>
 
               </thead>
               <tbody>
@@ -170,9 +279,22 @@
                   <td>{{ rec.number }}</td>
                   <td>{{ rec.name }}</td>
                   <td>{% if rec.gender == 'M' %}男{% else %}女{% endif %}</td>
-                  <td>{{ rec.time|date:"Y-m-d H:i" }}</td>
-                  <td>{% if rec.has_file %}<span class="badge bg-success">已上传</span>{% else %}<span class="badge bg-secondary">无文件</span>{% endif %}</td>
-                  <td>{% if rec.delay %}<span class="badge badge-delay">延期</span>{% else %}<span class="badge badge-submitted">正常</span>{% endif %}</td>
+                  <td>{% if rec.submitted_at %}{{ rec.submitted_at|date:"Y-m-d H:i" }}{% else %}—{% endif %}</td><td>{% if rec.updated_at %}{{ rec.updated_at|date:"Y-m-d H:i" }}{% else %}—{% endif %}</td>
+                  <td>{% if rec.has_file %}
+                    <span class="badge bg-success">已上传</span>
+                    {% if rec.previewable and rec.file_id %}
+                    <a href="{% url 'preview_homework_file' rec.file_id %}" target="_blank" class="btn btn-outline-secondary btn-sm ms-1 py-0" title="预览"><i class="bi bi-eye"></i></a>
+                    <a href="{% url 'download_homework_file' rec.file_id %}" class="btn btn-outline-primary btn-sm py-0" title="下载"><i class="bi bi-download"></i></a>
+                    {% elif rec.file_id %}
+                    <a href="{% url 'download_homework_file' rec.file_id %}" class="btn btn-outline-primary btn-sm ms-1 py-0" title="下载"><i class="bi bi-download"></i></a>
+                    {% endif %}
+                  {% else %}<span class="badge bg-secondary">无文件</span>{% endif %}</td>
+                  <td>
+                    {% if rec.delay %}<span class="badge badge-delay">延期</span>{% else %}<span class="badge badge-submitted">正常</span>{% endif %}
+                    {% if rec.precheck_warn_active %}
+                    <span class="badge bg-warning text-dark ms-1" title="{{ rec.precheck_warn_text|escape }}"><i class="bi bi-exclamation-triangle"></i> 预检警告</span>
+                    {% endif %}
+                  </td>
                   <td><input type="checkbox" class="form-check-input chk-{{ td.task.id }}" data-number="{{ rec.number }}"></td>
                 </tr>
                 {% endfor %}
@@ -422,7 +544,7 @@
             </div>
             <div class="col-md-6">
               <label class="form-label">允许的文件类型</label>
-              <input type="text" class="form-control" name="fileType" value="*" placeholder="如 .docx,.pdf 或 * 不限">
+              <input type="text" class="form-control" name="fileType" value="*" placeholder="如 .docx,.pdf,.zip 或 *（禁止 .doc）">
             </div>
           </div>
         </div>
@@ -446,7 +568,7 @@
       <div class="modal-body">
         <!-- 步骤1：选班级 -->
         <div id="reuse-step-class">
-          <p class="text-muted mb-2" style="font-size:.85rem;">请选择要复用的历史班级：</p>
+          <p class="text-muted mb-2" style="font-size:.85rem;">请选择要复用的历史班级（「含模板」会同步复制报告模板；「含预检」会同步作业级预检模式/策略/规则包）：</p>
           <div id="historyClassList"></div>
         </div>
         <!-- 步骤2：选实验 -->
@@ -716,7 +838,7 @@ function selectHistClass(idx){
       h += '<span><s>'+t.title+'</s> <span class="badge bg-warning text-dark" style="font-size:.7rem;">已存在</span></span>';
     } else {
       h += '<input type="checkbox" class="form-check-input reuse-chk" value="'+t.id+'" checked onchange="updateReuseCount()">';
-      h += '<span>'+t.title + (t.fileType && t.fileType!='*' ? ' <span class="text-muted" style="font-size:.75rem;">('+t.fileType+')</span>' : '') + '</span>';
+      h += '<span>'+t.title + (t.fileType && t.fileType!='*' ? ' <span class="text-muted" style="font-size:.75rem;">('+t.fileType+')</span>' : '') + (t.has_template ? ' <span class="badge bg-info text-dark" style="font-size:.7rem;">含模板</span>' : '') + (t.has_precheck ? ' <span class="badge bg-secondary" style="font-size:.7rem;">含预检</span>' : '') + '</span>';
     }
     h += '</label>';
   });
@@ -1050,5 +1172,135 @@ function submitRefCopy(){
     error: function(){ alert('复制失败'); }
   });
 }
+
+
+/* 课程默认报告模板 */
+(function(){
+  var CSRF = (document.querySelector('[name=csrfmiddlewaretoken]') || {}).value
+    || (document.cookie.match(/csrftoken=([^;]+)/)||[])[1] || '';
+  function msg(text, ok){
+    var el = document.getElementById('courseTplMsg');
+    if(!el) return;
+    el.style.display = '';
+    el.className = 'small mt-2 ' + (ok ? 'text-success' : 'text-danger');
+    el.textContent = text;
+  }
+  function showReady(data){
+    document.getElementById('course-tpl-empty').style.display = 'none';
+    document.getElementById('course-tpl-ready').style.display = '';
+    if (data.original_name) document.getElementById('courseTplName').textContent = data.original_name;
+    if (data.uploaded_at) document.getElementById('courseTplTime').textContent = '上传于 ' + data.uploaded_at;
+    document.getElementById('swCourseDownload').checked = !!data.enable_report_template_download;
+    document.getElementById('swCourseAutofill').checked = !!data.enable_report_cover_autofill;
+  }
+  function upload(fileInput){
+    if (!fileInput.files || !fileInput.files.length) { alert('请选择 .docx 文件'); return; }
+    if (isLegacyDocName(fileInput.files[0].name)) {
+      alert('系统不支持旧版 Word（.doc）文件，模板请使用 .docx 格式。');
+      fileInput.value = '';
+      return;
+    }
+    if (!fileInput.files[0].name.toLowerCase().endsWith('.docx')) {
+      alert('仅支持 .docx 模板文件。');
+      fileInput.value = '';
+      return;
+    }
+    var fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    fd.append('csrfmiddlewaretoken', CSRF);
+    fetch('{% url "uploadCourseTemplate" course.id %}', { method:'POST', body: fd, credentials:'same-origin' })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if (!j.ok) { msg(j.error || '上传失败', false); return; }
+        showReady(j);
+        msg('课程默认模板已上传；未设专用模板的作业将自动使用', true);
+        fileInput.value = '';
+        setTimeout(function(){ location.reload(); }, 800);
+      })
+      .catch(function(){ msg('上传失败', false); });
+  }
+  var btn = document.getElementById('btnCourseTplUpload');
+  if (!btn) return;
+  btn.addEventListener('click', function(){ upload(document.getElementById('courseTplFile')); });
+  document.getElementById('courseTplReplace').addEventListener('change', function(){ upload(this); });
+  document.getElementById('btnCourseTplDelete').addEventListener('click', function(){
+    if (!confirm('确定删除课程默认报告模板？已设专用模板的作业不受影响。')) return;
+    var fd = new FormData();
+    fd.append('csrfmiddlewaretoken', CSRF);
+    fetch('{% url "deleteCourseTemplate" course.id %}', { method:'POST', body: fd, credentials:'same-origin' })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if (!j.ok) { msg(j.error || '删除失败', false); return; }
+        location.reload();
+      });
+  });
+  function saveSw(){
+    fetch('{% url "updateCourseTemplateSettings" course.id %}', {
+      method:'POST', credentials:'same-origin',
+      headers: { 'Content-Type':'application/json', 'X-CSRFToken': CSRF },
+      body: JSON.stringify({
+        enable_report_template_download: document.getElementById('swCourseDownload').checked,
+        enable_report_cover_autofill: document.getElementById('swCourseAutofill').checked
+      })
+    }).then(function(r){ return r.json(); })
+      .then(function(j){
+        if (!j.ok) { msg(j.error || '保存失败', false); return; }
+        msg('开关已保存', true);
+      });
+  }
+  document.getElementById('swCourseDownload').addEventListener('change', saveSw);
+  document.getElementById('swCourseAutofill').addEventListener('change', saveSw);
+})();
+
+
+function isLegacyDocName(name){
+  name = (name || '').toLowerCase();
+  return name.endsWith('.doc') && !name.endsWith('.docx');
+}
+function fileTypeSettingHasDoc(ft){
+  ft = (ft || '').toLowerCase();
+  var parts = ft.split(',');
+  for (var i=0; i<parts.length; i++){
+    var tok = parts[i].trim().replace(/^\./,'');
+    if (tok === 'doc') return true;
+  }
+  return false;
+}
+(function(){
+  var addForm = document.querySelector('#addTaskModal form');
+  if (addForm) addForm.addEventListener('submit', function(e){
+    var ft = (addForm.querySelector('[name=fileType]') || {}).value || '';
+    if (fileTypeSettingHasDoc(ft)) {
+      alert('系统不支持旧版 Word（.doc）文件，请使用 .docx 格式。\n请在允许类型中填写 .docx，不要填写 .doc。');
+      e.preventDefault();
+    }
+  });
+})();
+
+
+/* 课程预检总开关 */
+(function(){
+  var btn = document.getElementById('btnSaveCoursePrecheck');
+  if (!btn) return;
+  var CSRF = (document.querySelector('#course-precheck-card [name=csrfmiddlewaretoken]') || {}).value
+    || (document.cookie.match(/csrftoken=([^;]+)/)||[])[1] || '';
+  btn.addEventListener('click', function(){
+    fetch('{% url "updateCoursePrecheckSettings" course.id %}', {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json','X-CSRFToken': CSRF},
+      body: JSON.stringify({
+        precheck_master: document.getElementById('coursePrecheckMaster').value,
+        precheck_cover_mode: document.getElementById('coursePrecheckFail').value
+      })
+    }).then(function(r){ return r.json(); })
+      .then(function(j){
+        var el = document.getElementById('coursePrecheckMsg');
+        el.style.display = '';
+        el.className = 'small mt-2 ' + (j.ok ? 'text-success' : 'text-danger');
+        el.textContent = j.ok ? '预检设置已保存' : (j.error || '保存失败');
+      });
+  });
+})();
+
 </script>
 {% endblock %}

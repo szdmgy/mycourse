@@ -1,4 +1,6 @@
 import json
+from pathlib import Path
+from datetime import datetime as _dt
 import logging
 import os
 import shutil
@@ -9,12 +11,13 @@ from django.contrib.auth import authenticate, login, logout, update_session_auth
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.models import User
-from django.http import HttpResponse, HttpResponseRedirect, StreamingHttpResponse, JsonResponse
+from django.http import HttpResponse, HttpResponseRedirect, StreamingHttpResponse, JsonResponse, FileResponse
+from django.db.models import Q
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST, require_http_methods
+from django.views.decorators.http import require_POST, require_http_methods, require_GET
 from django import forms
 
 from app01 import models
@@ -24,6 +27,43 @@ from app01.upload_data import (
     parse_task_excel, write_task_import,
     parse_teacher_excel, preview_teacher_import, write_teacher_users,
 )
+from app01.api_auth import require_api_key
+from app01.grades import (
+    serialize_grade, upsert_grade, LETTER_CHOICES, VALID_LETTERS,
+    build_grade_summary, SCORE_UNSET,
+)
+from app01.models import HomeworkGrade
+from app01.libreoffice_preview import (
+    convert_office_to_pdf,
+    is_previewable_name,
+)
+from app01.precheck import (
+    copy_precheck_to_task,
+    resolve_precheck_plan,
+    run_precheck_on_file,
+    validate_precheck_package,
+    precheck_display,
+    task_has_reusable_precheck,
+)
+from app01.report_template import (
+    TEMPLATE_MAX_MB,
+    autofill_docx_bytes,
+    build_cover_values,
+    clear_course_template_files,
+    clear_task_template_files,
+    copy_template_to_task,
+    course_has_template_file,
+    effective_cover_autofill,
+    resolve_task_template,
+    save_uploaded_course_template,
+    save_uploaded_template,
+    student_download_filename,
+    task_has_template_file,
+    template_abs_path,
+    task_allows_report_template,
+    template_available_for_student,
+)
+from app01 import impersonation as impersonation_helpers
 from app01.utils import (
     file_iterator,
     is_teacher_or_admin,
@@ -34,6 +74,9 @@ from app01.utils import (
     REF_MATERIAL_MAX_MB,
     reference_material_rel_dir,
     validate_reference_material_filename,
+    DOC_FORBIDDEN_MSG,
+    is_legacy_doc_filename,
+    validate_file_type_setting,
 )
 from mycourse.settings import BASE_DIR, FILES_ROOT
 
@@ -94,20 +137,24 @@ def submission_status_api(request):
     for s in students:
         hw = homeworks.get(s.id)
         if hw:
-            submit_date = hw.time.date()
-            delay = submit_date > deadline
+            submit_date = hw.submitted_at.date() if hw.submitted_at else None
+            delay = bool(submit_date and submit_date > deadline)
             status = 'overdue' if delay else 'submitted'
-            submit_time = hw.time.isoformat() if hw.time else None
+            submit_time = hw.submitted_at.isoformat() if hw.submitted_at else None
+            updated_time = hw.updated_at.isoformat() if hw.updated_at else None
         else:
             delay = False
             status = 'not_submitted'
             submit_time = None
+            updated_time = None
 
         students_data.append({
             'number': s.user.username,
             'name': s.name,
             'status': status,
             'submit_time': submit_time,
+            'submitted_at': submit_time,
+            'updated_at': updated_time,
             'delay': delay,
         })
 
@@ -268,14 +315,36 @@ def taskSubmit(request, taskID):
     homework = models.Homework.objects.filter(user=request.user.profile, task=task).first()
 
     hw_file = None
+    hw_file_previewable = False
     if homework:
         hw_file = HomeworkFile.objects.filter(homework=homework).first()
+        if hw_file:
+            fname = hw_file.standardName or hw_file.originalName or ''
+            hw_file_previewable = is_previewable_name(fname)
 
+    fail_grade = None
+    if homework:
+        try:
+            g = homework.grade
+            fail_grade = serialize_grade(g, for_student=True)
+        except HomeworkGrade.DoesNotExist:
+            fail_grade = None
+
+    if not request.session.session_key:
+        request.session.save()
     context = {
         'name': get_display_name(request.user),
         'course': course,
         'task': task,
         'hw_file': hw_file,
+        'hw_file_previewable': hw_file_previewable,
+        'fail_grade': fail_grade,
+        'f_warn_session': request.session.session_key or '',
+        'template_download': template_available_for_student(task),
+        'template_autofill': effective_cover_autofill(task),
+        'precheck': precheck_display(task),
+        'precheck_warn_active': bool(homework and homework.precheck_warn_active),
+        'precheck_warn_text': (homework.precheck_warn_text if homework else '') or '',
     }
     return render(request, 'studentSubmit.html', context)
 
@@ -300,8 +369,11 @@ def studentCourse(request, courseTerm, courseName, classNumber):
         past_deadline = today > task.deadline
 
         if homework:
-            has_file = HomeworkFile.objects.filter(homework=homework).exists()
-            is_delay = homework.time.date() > task.deadline
+            hw_file = HomeworkFile.objects.filter(homework=homework).first()
+            is_delay = homework.is_late
+            fname = ''
+            if hw_file:
+                fname = hw_file.standardName or hw_file.originalName or ''
 
             if is_delay:
                 status = 'delay_submitted'
@@ -310,11 +382,29 @@ def studentCourse(request, courseTerm, courseName, classNumber):
                 status = 'submitted'
                 status_text = '已提交'
 
+            grade = None
+            try:
+                grade = homework.grade
+            except HomeworkGrade.DoesNotExist:
+                grade = None
+            student_grade = serialize_grade(grade, for_student=True)
+            fail_visible = bool(student_grade and student_grade.get('is_fail'))
+            needs_regrade = bool(fail_visible and grade and grade.needs_regrade)
             taskRecords.append({
                 'title': task.title, 'id': task.id,
-                'time': homework.time, 'deadline': task.deadline,
+                'submitted_at': homework.submitted_at, 'updated_at': homework.updated_at, 'deadline': task.deadline,
                 'status': status, 'status_text': status_text,
-                'has_file': has_file,
+                'has_file': hw_file is not None,
+                'file_id': hw_file.id if hw_file else None,
+                'previewable': bool(hw_file and is_previewable_name(fname)),
+                'fail_visible': fail_visible,
+                'fail_need_action': bool(fail_visible and not needs_regrade),
+                'grade_comment': (student_grade or {}).get('comment') or '',
+                'needs_regrade': needs_regrade,
+                'template_download': template_available_for_student(task),
+                'precheck': precheck_display(task),
+                'precheck_warn_active': bool(homework.precheck_warn_active),
+                'precheck_warn_text': homework.precheck_warn_text or '',
             })
         else:
             if past_deadline:
@@ -326,20 +416,37 @@ def studentCourse(request, courseTerm, courseName, classNumber):
 
             taskRecords.append({
                 'title': task.title, 'id': task.id,
-                'time': '', 'deadline': task.deadline,
+                'submitted_at': '', 'updated_at': '', 'deadline': task.deadline,
                 'status': status, 'status_text': status_text,
                 'has_file': False,
+                'file_id': None,
+                'previewable': False,
+                'fail_visible': False,
+                'fail_need_action': False,
+                'grade_comment': '',
+                'needs_regrade': False,
+                'template_download': template_available_for_student(task),
+                'precheck': precheck_display(task),
+                'precheck_warn_active': False,
+                'precheck_warn_text': '',
             })
 
     reference_materials = models.ReferenceMaterial.objects.filter(
         course=course, display=True
     ).order_by('sort_order', '-created_at', 'id')
 
+    if not request.session.session_key:
+        request.session.save()
     context = {
         'taskRecords': taskRecords,
         'name': get_display_name(request.user),
         'course': course,
         'reference_materials': reference_materials,
+        'student_username': request.user.username,
+        'f_warn_session': request.session.session_key or '',
+        'has_fail_grade': any(r.get('fail_visible') for r in taskRecords),
+        'has_fail_need_action': any(r.get('fail_need_action') for r in taskRecords),
+        'has_fail_pending_regrade': any(r.get('fail_visible') and r.get('needs_regrade') for r in taskRecords),
     }
     return render(request, 'studentTaskList.html', context)
 
@@ -381,12 +488,55 @@ def post_file(request):
     file_obj = request.FILES.get('file')
     suffix = file_obj.name.rsplit('.', 1)[-1] if '.' in file_obj.name else ''
     task_id = request.POST.get('taskId')
-    task = models.Task.objects.get(id=task_id)
+    task = models.Task.objects.select_related('courseBelongTo').get(id=task_id)
+
+    if is_legacy_doc_filename(file_obj.name):
+        return HttpResponse(DOC_FORBIDDEN_MSG)
 
     if task.fileType != '*' and suffix:
-        allowed = [t.strip().lower().lstrip('.') for t in task.fileType.split(',')]
+        allowed = [x.strip().lower().lstrip('.') for x in task.fileType.split(',')]
         if suffix.lower() not in allowed:
             return HttpResponse(f'文件类型不允许，仅支持：{task.fileType}')
+
+    plan = resolve_precheck_plan(task)
+    force_ack = (request.POST.get('precheck_ack') or '') in ('1', 'true', 'yes')
+    tmp_path = None
+    precheck_result = None
+    if plan.do_cover or plan.do_framework:
+        if suffix.lower() != 'docx':
+            return HttpResponse('本作业已开启报告预检，仅允许提交 .docx 文件')
+        # 先落临时文件做预检，通过后再写入正式路径
+        fd, tmp_path = tempfile.mkstemp(suffix='.docx')
+        os.close(fd)
+        with open(tmp_path, 'wb') as tf:
+            for chunk in file_obj.chunks():
+                tf.write(chunk)
+        file_obj.seek(0)
+        precheck_result = run_precheck_on_file(tmp_path, task, request.user.profile, request.user)
+        if not precheck_result.ok:
+            body = precheck_result.as_text()
+            if precheck_result.fail_mode == 'warn' and not force_ack:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+                return HttpResponse('PRECHECK_WARN' + chr(10) + body)
+            if precheck_result.fail_mode != 'warn':
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+                return HttpResponse('PRECHECK_FAIL' + chr(10) + body)
+            # warn + 已确认：继续用临时文件提交
+        with open(tmp_path, 'rb') as tf:
+            file_bytes = tf.read()
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        tmp_path = None
+    else:
+        file_bytes = None
 
     title_safe = safe_filename(task.title)
     student_name = safe_filename(request.user.profile.name)
@@ -401,16 +551,52 @@ def post_file(request):
     rel_path = os.path.join(rel_dir, file_name)
     abs_path = os.path.join(BASE_DIR, rel_path)
 
-    homework, _ = models.Homework.objects.get_or_create(
-        user=request.user.profile, task=task
+    now = timezone.now()
+    homework, created = models.Homework.objects.get_or_create(
+        user=request.user.profile,
+        task=task,
+        defaults={'submitted_at': now, 'updated_at': now},
     )
+    if not created:
+        updates = {'updated_at': now}
+        if not homework.submitted_at:
+            updates['submitted_at'] = now
+        for k, v in updates.items():
+            setattr(homework, k, v)
+        homework.save(update_fields=list(updates.keys()))
+
     HomeworkFile.objects.update_or_create(
         homework=homework,
         defaults={'filePath': rel_path, 'originalName': file_obj.name}
     )
 
     with open(abs_path, 'wb') as f:
-        f.write(file_obj.read())
+        if file_bytes is not None:
+            f.write(file_bytes)
+        else:
+            f.write(file_obj.read())
+
+    # F 后重交：保留不合格等级，标记待重评
+    if not created:
+        try:
+            grade = homework.grade
+        except HomeworkGrade.DoesNotExist:
+            grade = None
+        if grade is not None and grade.letter_grade == HomeworkGrade.GRADE_F and not grade.needs_regrade:
+            grade.needs_regrade = True
+            grade.save(update_fields=['needs_regrade', 'updated_at'])
+
+    # 仅警告确认后提交：保留警告标记；预检通过或未开启预检则清除
+    warn_fields = ['precheck_warn_active', 'precheck_warn_text', 'precheck_warned_at']
+    if precheck_result is not None and (not precheck_result.ok) and precheck_result.fail_mode == 'warn':
+        homework.precheck_warn_active = True
+        homework.precheck_warn_text = (precheck_result.as_text() or '')[:4000]
+        homework.precheck_warned_at = now
+    else:
+        homework.precheck_warn_active = False
+        homework.precheck_warn_text = ''
+        homework.precheck_warned_at = None
+    homework.save(update_fields=warn_fields)
 
     logger.info("文件上传: %s -> %s", request.user.username, file_name)
     return HttpResponse('YES')
@@ -458,6 +644,61 @@ def download_homework_file(request, file_id):
     response['Content-Type'] = 'application/octet-stream'
     response['Content-Disposition'] = 'attachment;filename=' + filename.encode('utf-8').decode('ISO-8859-1')
     return response
+
+
+@login_required
+def preview_homework_file(request, file_id):
+    """
+    在线预览作业附件：.pdf 直接打开；.doc/.docx 经 LibreOffice 转 PDF 后内联打开。
+    权限与下载一致：本人或教师/管理员。
+    """
+    hw_file = get_object_or_404(HomeworkFile, pk=file_id)
+
+    if not is_teacher_or_admin(request.user):
+        if hw_file.homework.user != request.user.profile:
+            return HttpResponse("无权预览此文件", status=403)
+
+    file_path = hw_file.absPath
+    if not os.path.exists(file_path):
+        return HttpResponse("文件不存在", status=404)
+
+    filename = hw_file.standardName or hw_file.originalName or os.path.basename(file_path)
+    suffix = Path(filename).suffix.lower() or Path(file_path).suffix.lower()
+
+    if not is_previewable_name(filename) and suffix not in {".doc", ".docx", ".pdf"}:
+        return HttpResponse(
+            f"该文件类型不支持在线预览（当前：{suffix or '未知'}）。请下载后查看。",
+            status=400,
+        )
+
+    if suffix == ".pdf":
+        return FileResponse(
+            open(file_path, "rb"),
+            as_attachment=False,
+            filename=filename,
+            content_type="application/pdf",
+        )
+
+    if suffix in {".doc", ".docx"}:
+        try:
+            pdf_path = convert_office_to_pdf(file_path, hw_file)
+        except Exception as exc:
+            logger.exception("预览转换异常 file_id=%s", file_id)
+            return HttpResponse(f"PDF 预览生成失败：{exc}", status=500)
+        if not pdf_path:
+            lo = "未检测到 LibreOfficePortable/soffice，或转换失败。"
+            return HttpResponse(
+                f"无法生成预览。{lo} 请确认项目目录下已放置 LibreOfficePortable，或下载原文件查看。",
+                status=503,
+            )
+        return FileResponse(
+            open(pdf_path, "rb"),
+            as_attachment=False,
+            filename=f"{Path(filename).stem}.pdf",
+            content_type="application/pdf",
+        )
+
+    return HttpResponse("不支持的预览类型", status=400)
 
 
 # ──────────────────────────── 教师端 ────────────────────────────
@@ -579,6 +820,11 @@ def addHomework(request):
 
     deadline_str = request.POST.get('deadline', '')
     fileType = request.POST.get('fileType', '') or '*'
+    ft_err, fileType = validate_file_type_setting(fileType)
+    if ft_err:
+        return HttpResponse(
+            "<script>alert(%s);history.back();</script>" % json.dumps(ft_err, ensure_ascii=False)
+        )
 
     task_data = dict(
         title=homeworkTitle, content=homeworkContent,
@@ -670,6 +916,7 @@ def deleteTaskByTeacher(request, taskId):
     task = models.Task.objects.filter(id=taskId).first()
     if not task:
         return HttpResponse("该作业不存在！无法删除该作业！")
+    clear_task_template_files(task)
     task.delete()
     return HttpResponseRedirect(request.headers.get('Referer'))
 
@@ -717,12 +964,12 @@ def delayRecords(request, courseID):
                 homework = models.Homework.objects.filter(task=task, user=student).first()
                 if homework:
                     has_file = HomeworkFile.objects.filter(homework=homework).exists()
-                    is_delay = homework.time.date() > task.deadline
+                    is_delay = homework.is_late
                     if is_delay:
                         records.append({
                             'title': task.title, 'name': student.name,
                             'number': student.user.username,
-                            'time': homework.time, 'deadline': task.deadline,
+                            'submitted_at': homework.submitted_at, 'updated_at': homework.updated_at, 'deadline': task.deadline,
                             'status': '延期提交',
                             'has_file': has_file,
                         })
@@ -731,7 +978,7 @@ def delayRecords(request, courseID):
                         records.append({
                             'title': task.title, 'name': student.name,
                             'number': student.user.username,
-                            'time': '', 'deadline': task.deadline,
+                            'submitted_at': '', 'updated_at': '', 'deadline': task.deadline,
                             'status': '未提交',
                             'has_file': False,
                         })
@@ -765,15 +1012,30 @@ def homeworkRecords(request, taskID):
             if hw.user in students:
                 submitStudents.append(hw.user)
                 hw_file = HomeworkFile.objects.filter(homework=hw).first()
+                fname = os.path.basename(hw_file.filePath) if hw_file else ''
+                try:
+                    grade_obj = hw.grade
+                except HomeworkGrade.DoesNotExist:
+                    grade_obj = None
+                gdata = serialize_grade(grade_obj, for_student=False)
                 submitRecords.append({
+                    'homework_id': hw.id,
                     'number': hw.user.user.username,
                     'name': hw.user.name,
                     'gender': hw.user.gender,
-                    'time': hw.time,
-                    'delay': hw.time.date() > task.deadline,
-                    'file_name': os.path.basename(hw_file.filePath) if hw_file else '',
+                    'submitted_at': hw.submitted_at, 'updated_at': hw.updated_at,
+                    'delay': hw.is_late,
+                    'file_name': fname,
                     'file_id': hw_file.id if hw_file else None,
                     'has_file': hw_file is not None,
+                    'previewable': bool(hw_file and is_previewable_name(fname or hw_file.originalName)),
+                    'letter_grade': (gdata or {}).get('letter_grade') or '',
+                    'score': (gdata or {}).get('score'),
+                    'comment': (gdata or {}).get('comment') or '',
+                    'needs_regrade': bool(grade_obj and grade_obj.needs_regrade),
+                    'is_fail': bool(grade_obj and grade_obj.is_fail),
+                    'precheck_warn_active': bool(hw.precheck_warn_active),
+                    'precheck_warn_text': hw.precheck_warn_text or '',
                 })
 
         for student in students:
@@ -784,12 +1046,15 @@ def homeworkRecords(request, taskID):
                     'gender': student.gender,
                 })
 
+        summary = build_grade_summary(task, students_qs=students)
         context = {
             'name': get_display_name(request.user),
             'course': course,
             'task': task,
             'submitRecords': submitRecords,
             'notSubmitStudents': notSubmitStudents,
+            'letter_choices': LETTER_CHOICES,
+            'summary': summary,
         }
         return render(request, 'homeworkRecords.html', context)
     except Task.DoesNotExist:
@@ -820,7 +1085,7 @@ def resetPassword(request):
 class TaskEditForm(forms.ModelForm):
     class Meta:
         model = Task
-        fields = ['title', 'content', 'display', 'deadline', 'fileType']
+        fields = ['title', 'content', 'display', 'deadline', 'fileType', 'precheck_mode', 'precheck_fail_mode']
         widgets = {
             'title': forms.TextInput(attrs={'class': 'form-control'}),
             'content': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
@@ -828,7 +1093,9 @@ class TaskEditForm(forms.ModelForm):
             'deadline': forms.DateInput(format='%Y-%m-%d',
                                         attrs={'type': 'date', 'class': 'form-control'}),
             'fileType': forms.TextInput(attrs={'class': 'form-control',
-                                               'placeholder': '如 .docx,.pdf 或 * 表示不限'}),
+                                               'placeholder': '如 .docx,.pdf,.zip 或 * 表示不限（禁止 .doc）'}),
+            'precheck_mode': forms.Select(attrs={'class': 'form-select'}),
+            'precheck_fail_mode': forms.Select(attrs={'class': 'form-select'}),
         }
         labels = {
             'title': '作业标题',
@@ -836,7 +1103,16 @@ class TaskEditForm(forms.ModelForm):
             'display': '是否显示',
             'deadline': '截止日期',
             'fileType': '允许的文件类型',
+            'precheck_mode': '预检模式',
+            'precheck_fail_mode': '预检失败策略',
         }
+
+    def clean_fileType(self):
+        ft = self.cleaned_data.get('fileType') or '*'
+        err, normalized = validate_file_type_setting(ft)
+        if err:
+            raise forms.ValidationError(err)
+        return normalized
 
 
 @login_required
@@ -854,6 +1130,7 @@ def taskChange(request, taskID):
             form.save()
             course = task.courseBelongTo
             return redirect('teacherCourseChange', course.courseTerm, course.courseName, course.classNumber)
+        # 校验失败（如填写了 .doc）留在本页展示错误
     else:
         form = TaskEditForm(instance=task)
 
@@ -865,8 +1142,316 @@ def taskChange(request, taskID):
         'course': task.courseBelongTo,
         'submitted_count': submitted_count,
         'original_title': task.title,
+        'has_template': task_has_template_file(task),
+        'inherits_course_template': (not task_has_template_file(task)) and course_has_template_file(task.courseBelongTo),
+        'template_allowed': task_allows_report_template(task),
+        'template_max_mb': TEMPLATE_MAX_MB,
+        'precheck_plan': resolve_precheck_plan(task),
+        'has_precheck_package': bool((task.precheck_package_json or '').strip()),
     }
     return render(request, 'taskChange.html', context)
+
+
+
+@login_required
+@require_POST
+
+@login_required
+@require_POST
+def update_course_precheck_settings(request, courseID):
+    """课程预检总开关。"""
+    if not is_teacher_or_admin(request.user):
+        return JsonResponse({'ok': False, 'error': '无权限'}, status=403)
+    course = models.Course.objects.filter(pk=courseID).first()
+    if not course:
+        return JsonResponse({'ok': False, 'error': '课程不存在'}, status=404)
+    if not can_manage_course(request.user, course):
+        return JsonResponse({'ok': False, 'error': '无权管理该课程'}, status=403)
+    try:
+        data = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'ok': False, 'error': '请求体须为 JSON'}, status=400)
+    master = data.get('precheck_master', course.precheck_master)
+    mode = data.get('precheck_cover_mode', course.precheck_cover_mode)
+    if master not in ('off', 'cover_default'):
+        return JsonResponse({'ok': False, 'error': 'precheck_master 无效'}, status=400)
+    if mode not in ('block', 'warn'):
+        return JsonResponse({'ok': False, 'error': 'precheck_cover_mode 无效'}, status=400)
+    course.precheck_master = master
+    course.precheck_cover_mode = mode
+    course.save(update_fields=['precheck_master', 'precheck_cover_mode'])
+    return JsonResponse({
+        'ok': True,
+        'precheck_master': course.precheck_master,
+        'precheck_cover_mode': course.precheck_cover_mode,
+    })
+
+
+def upload_course_report_template(request, courseID):
+    """上传课程默认报告模板（全课作业可继承）。"""
+    if not is_teacher_or_admin(request.user):
+        return JsonResponse({'ok': False, 'error': '无权限'}, status=403)
+    course = models.Course.objects.filter(pk=courseID).first()
+    if not course:
+        return JsonResponse({'ok': False, 'error': '课程不存在'}, status=404)
+    if not can_manage_course(request.user, course):
+        return JsonResponse({'ok': False, 'error': '无权管理该课程'}, status=403)
+    f = request.FILES.get('file')
+    if not f:
+        return JsonResponse({'ok': False, 'error': '请选择 .docx 文件'}, status=400)
+    err, _ = save_uploaded_course_template(course, f)
+    if err:
+        return JsonResponse({'ok': False, 'error': err}, status=400)
+    course.refresh_from_db()
+    return JsonResponse({
+        'ok': True,
+        'original_name': course.report_template_original_name,
+        'uploaded_at': course.report_template_uploaded_at.strftime('%Y-%m-%d %H:%M') if course.report_template_uploaded_at else '',
+        'enable_report_template_download': course.enable_report_template_download,
+        'enable_report_cover_autofill': course.enable_report_cover_autofill,
+    })
+
+
+@login_required
+@require_POST
+def delete_course_report_template(request, courseID):
+    if not is_teacher_or_admin(request.user):
+        return JsonResponse({'ok': False, 'error': '无权限'}, status=403)
+    course = models.Course.objects.filter(pk=courseID).first()
+    if not course:
+        return JsonResponse({'ok': False, 'error': '课程不存在'}, status=404)
+    if not can_manage_course(request.user, course):
+        return JsonResponse({'ok': False, 'error': '无权管理该课程'}, status=403)
+    clear_course_template_files(course)
+    course.report_template_path = ''
+    course.report_template_original_name = ''
+    course.report_template_uploaded_at = None
+    course.enable_report_template_download = False
+    course.enable_report_cover_autofill = False
+    course.save(update_fields=[
+        'report_template_path', 'report_template_original_name', 'report_template_uploaded_at',
+        'enable_report_template_download', 'enable_report_cover_autofill',
+    ])
+    return JsonResponse({'ok': True})
+
+
+@login_required
+@require_POST
+def update_course_template_settings(request, courseID):
+    if not is_teacher_or_admin(request.user):
+        return JsonResponse({'ok': False, 'error': '无权限'}, status=403)
+    course = models.Course.objects.filter(pk=courseID).first()
+    if not course:
+        return JsonResponse({'ok': False, 'error': '课程不存在'}, status=404)
+    if not can_manage_course(request.user, course):
+        return JsonResponse({'ok': False, 'error': '无权管理该课程'}, status=403)
+    if not course_has_template_file(course):
+        return JsonResponse({'ok': False, 'error': '请先上传课程默认模板'}, status=400)
+    try:
+        data = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'ok': False, 'error': '请求体须为 JSON'}, status=400)
+    update_fields = []
+    if 'enable_report_template_download' in data:
+        course.enable_report_template_download = bool(data['enable_report_template_download'])
+        update_fields.append('enable_report_template_download')
+    if 'enable_report_cover_autofill' in data:
+        course.enable_report_cover_autofill = bool(data['enable_report_cover_autofill'])
+        update_fields.append('enable_report_cover_autofill')
+    if not update_fields:
+        return JsonResponse({'ok': False, 'error': '无有效字段'}, status=400)
+    course.save(update_fields=update_fields)
+    return JsonResponse({
+        'ok': True,
+        'enable_report_template_download': course.enable_report_template_download,
+        'enable_report_cover_autofill': course.enable_report_cover_autofill,
+    })
+
+
+@login_required
+@require_GET
+def download_course_report_template_master(request, courseID):
+    if not is_teacher_or_admin(request.user):
+        return HttpResponse('无权限', status=403)
+    course = models.Course.objects.filter(pk=courseID).first()
+    if not course:
+        return HttpResponse('课程不存在', status=404)
+    if not can_manage_course(request.user, course):
+        return HttpResponse('无权管理该课程', status=403)
+    if not course_has_template_file(course):
+        return HttpResponse('尚未上传课程默认模板', status=404)
+    abs_path = template_abs_path(course.report_template_path)
+    filename = course.report_template_original_name or os.path.basename(abs_path)
+    return FileResponse(
+        open(abs_path, 'rb'),
+        as_attachment=True,
+        filename=filename,
+        content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    )
+
+
+def upload_task_report_template(request, taskID):
+    """教师上传/替换作业报告模板（.docx）。"""
+    if not is_teacher_or_admin(request.user):
+        return JsonResponse({'ok': False, 'error': '无权限'}, status=403)
+    task = models.Task.objects.filter(pk=taskID).select_related('courseBelongTo').first()
+    if not task:
+        return JsonResponse({'ok': False, 'error': '作业不存在'}, status=404)
+    if not can_manage_course(request.user, task.courseBelongTo):
+        return JsonResponse({'ok': False, 'error': '无权管理该课程'}, status=403)
+    f = request.FILES.get('file')
+    if not f:
+        return JsonResponse({'ok': False, 'error': '请选择 .docx 文件'}, status=400)
+    err, _orig = save_uploaded_template(task, f)
+    if err:
+        return JsonResponse({'ok': False, 'error': err}, status=400)
+    task.refresh_from_db()
+    return JsonResponse({
+        'ok': True,
+        'original_name': task.template_original_name,
+        'uploaded_at': task.template_uploaded_at.strftime('%Y-%m-%d %H:%M') if task.template_uploaded_at else '',
+        'enable_template_download': task.enable_template_download,
+        'enable_cover_autofill': task.enable_cover_autofill,
+    })
+
+
+@login_required
+@require_POST
+def delete_task_report_template(request, taskID):
+    """教师删除作业报告模板。"""
+    if not is_teacher_or_admin(request.user):
+        return JsonResponse({'ok': False, 'error': '无权限'}, status=403)
+    task = models.Task.objects.filter(pk=taskID).select_related('courseBelongTo').first()
+    if not task:
+        return JsonResponse({'ok': False, 'error': '作业不存在'}, status=404)
+    if not can_manage_course(request.user, task.courseBelongTo):
+        return JsonResponse({'ok': False, 'error': '无权管理该课程'}, status=403)
+    clear_task_template_files(task)
+    task.template_path = ''
+    task.template_original_name = ''
+    task.template_uploaded_at = None
+    task.enable_template_download = False
+    task.enable_cover_autofill = False
+    task.save(update_fields=[
+        'template_path', 'template_original_name', 'template_uploaded_at',
+        'enable_template_download', 'enable_cover_autofill',
+    ])
+    return JsonResponse({'ok': True})
+
+
+@login_required
+@require_POST
+def update_task_template_settings(request, taskID):
+    """教师更新模板开关。"""
+    if not is_teacher_or_admin(request.user):
+        return JsonResponse({'ok': False, 'error': '无权限'}, status=403)
+    task = models.Task.objects.filter(pk=taskID).select_related('courseBelongTo').first()
+    if not task:
+        return JsonResponse({'ok': False, 'error': '作业不存在'}, status=404)
+    if not can_manage_course(request.user, task.courseBelongTo):
+        return JsonResponse({'ok': False, 'error': '无权管理该课程'}, status=403)
+    if not task_allows_report_template(task):
+        return JsonResponse({'ok': False, 'error': '本作业不允许 .docx，不能使用报告模板'}, status=400)
+    if not task_has_template_file(task):
+        return JsonResponse({'ok': False, 'error': '请先上传报告模板'}, status=400)
+    try:
+        data = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'ok': False, 'error': '请求体须为 JSON'}, status=400)
+    update_fields = []
+    if 'enable_template_download' in data:
+        task.enable_template_download = bool(data['enable_template_download'])
+        update_fields.append('enable_template_download')
+    if 'enable_cover_autofill' in data:
+        task.enable_cover_autofill = bool(data['enable_cover_autofill'])
+        update_fields.append('enable_cover_autofill')
+    if not update_fields:
+        return JsonResponse({'ok': False, 'error': '无有效字段'}, status=400)
+    task.save(update_fields=update_fields)
+    return JsonResponse({
+        'ok': True,
+        'enable_template_download': task.enable_template_download,
+        'enable_cover_autofill': task.enable_cover_autofill,
+    })
+
+
+@login_required
+@require_GET
+def download_task_report_template_master(request, taskID):
+    """教师下载母版（不自动填封面）。"""
+    if not is_teacher_or_admin(request.user):
+        return HttpResponse('无权限', status=403)
+    task = models.Task.objects.filter(pk=taskID).select_related('courseBelongTo').first()
+    if not task:
+        return HttpResponse('作业不存在', status=404)
+    if not can_manage_course(request.user, task.courseBelongTo):
+        return HttpResponse('无权管理该课程', status=403)
+    if not task_has_template_file(task):
+        return HttpResponse('尚未上传模板', status=404)
+    abs_path = template_abs_path(task.template_path)
+    filename = task.template_original_name or os.path.basename(abs_path)
+    return FileResponse(
+        open(abs_path, 'rb'),
+        as_attachment=True,
+        filename=filename,
+        content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    )
+
+
+@login_required
+@require_GET
+def download_task_report_template_student(request, taskID):
+    """学生下载报告模板（可选自动填封面）。"""
+    task = models.Task.objects.filter(pk=taskID).select_related('courseBelongTo').first()
+    if not task:
+        return HttpResponse('作业不存在', status=404)
+    course = task.courseBelongTo
+    profile = getattr(request.user, 'profile', None)
+    if profile is None:
+        return HttpResponse('用户资料不存在', status=403)
+    # 教师/超管可下载（预览效果）；学生须为本课程成员且作业开放下载
+    is_staff = is_teacher_or_admin(request.user)
+    if is_staff:
+        if not can_manage_course(request.user, course) and not request.user.is_superuser:
+            # 非本课教师：仍允许超管；普通教师需管理权限
+            if not request.user.is_superuser:
+                return HttpResponse('无权下载', status=403)
+    else:
+        if not course.members.filter(pk=profile.pk).exists():
+            return HttpResponse('你不是本课程学生', status=403)
+        if not template_available_for_student(task):
+            return HttpResponse('本作业未开放报告模板下载', status=404)
+
+    resolved = resolve_task_template(task)
+    if not resolved:
+        return HttpResponse('模板文件缺失', status=404)
+
+    abs_path = resolved.abs_path
+    do_fill = bool(resolved.enable_autofill)
+    # 学生必须开放下载；教师试下载可无视 enable_download
+    if not is_staff and not resolved.enable_download:
+        return HttpResponse('本作业未开放报告模板下载', status=404)
+
+    if do_fill:
+        values = build_cover_values(task, profile, request.user)
+        content = autofill_docx_bytes(abs_path, values)
+        filename = student_download_filename(task, profile, request.user)
+        from django.http import HttpResponse as _HR
+        from urllib.parse import quote
+        resp = _HR(
+            content,
+            content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        )
+        resp['Content-Disposition'] = "attachment; filename*=UTF-8''%s" % quote(filename)
+        return resp
+
+    filename = resolved.original_name or os.path.basename(abs_path)
+    return FileResponse(
+        open(abs_path, 'rb'),
+        as_attachment=True,
+        filename=filename,
+        content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    )
 
 
 @login_required
@@ -1199,14 +1784,21 @@ def teacher_course_change(request, courseTerm, courseName, classNumber):
             if hw.user.pk in seen or hw.user not in students:
                 continue
             seen.add(hw.user.pk)
-            has_file = HomeworkFile.objects.filter(homework=hw).exists()
+            hw_file = HomeworkFile.objects.filter(homework=hw).first()
+            fname = ''
+            if hw_file:
+                fname = os.path.basename(hw_file.filePath) or hw_file.originalName or ''
             submitted.append({
                 'number': hw.user.user.username,
                 'name': hw.user.name,
                 'gender': hw.user.gender,
-                'time': hw.time,
-                'delay': hw.time.date() > task.deadline,
-                'has_file': has_file,
+                'submitted_at': hw.submitted_at, 'updated_at': hw.updated_at,
+                'delay': hw.is_late,
+                'has_file': hw_file is not None,
+                'file_id': hw_file.id if hw_file else None,
+                'previewable': bool(hw_file and is_previewable_name(fname)),
+                'precheck_warn_active': bool(hw.precheck_warn_active),
+                'precheck_warn_text': hw.precheck_warn_text or '',
             })
         for student in students:
             if student.pk not in seen:
@@ -1217,6 +1809,8 @@ def teacher_course_change(request, courseTerm, courseName, classNumber):
             'not_submitted': not_submitted,
             'submitted_count': len(submitted),
             'not_submitted_count': len(not_submitted),
+            'template_allowed': task_allows_report_template(task),
+            'precheck': precheck_display(task),
         })
 
     reference_materials = models.ReferenceMaterial.objects.filter(course=course).order_by(
@@ -1229,6 +1823,8 @@ def teacher_course_change(request, courseTerm, courseName, classNumber):
         'student_count': students.count(),
         'name': get_display_name(request.user),
         'course': course,
+        'has_course_template': course_has_template_file(course),
+        'template_max_mb': TEMPLATE_MAX_MB,
         'reference_materials': reference_materials,
     }
     return render(request, 'teacherCourseDetail.html', context)
@@ -1654,6 +2250,8 @@ def getHistoryTasks(request, courseID):
                 'content': t.content[:100],
                 'fileType': t.fileType,
                 'duplicate': t.title in existing_titles,
+                'has_template': task_has_template_file(t),
+                'has_precheck': task_has_reusable_precheck(t),
             })
         result.append({
             'courseID': course.id,
@@ -1687,11 +2285,13 @@ def copyTasks(request):
             new_title = src.title
             while models.Task.objects.filter(courseBelongTo=target_course, title=new_title).exists():
                 new_title += '(副本)'
-            models.Task.objects.create(
+            new_task = models.Task.objects.create(
                 title=new_title, content=src.content,
                 courseBelongTo=target_course,
                 fileType=src.fileType,
             )
+            copy_template_to_task(src, new_task)
+            copy_precheck_to_task(src, new_task)
             copied.append(new_title)
         except models.Task.DoesNotExist:
             errors.append(f'实验 ID={task_id} 不存在')
@@ -1776,3 +2376,711 @@ def create_student_user():
         models.UserProfile.objects.create(
             name=u[1], gender='M' if u[2] == '男' else 'F', user_id=user_obj.id
         )
+
+# ===== PHASE1_API_AND_IMPERSONATION =====
+
+
+
+def _parse_deadline(value):
+    if value is None or value == "":
+        return None, "deadline 不能为空"
+    if isinstance(value, str):
+        value = value.strip()
+        try:
+            return _dt.strptime(value, "%Y-%m-%d").date(), None
+        except ValueError:
+            return None, "deadline 格式应为 YYYY-MM-DD"
+    return value, None
+
+
+@require_api_key
+@csrf_exempt
+@require_http_methods(["GET", "PATCH", "PUT"])
+def task_settings_api(request, task_id):
+    """
+    作业设置查询/修改（需 API Key）。
+    GET：返回作业基本信息
+    PATCH/PUT：可改 deadline、display、title、content、fileType
+    """
+    task = models.Task.objects.filter(pk=task_id).select_related("courseBelongTo").first()
+    if not task:
+        return JsonResponse({"code": 404, "message": f"未找到作业 id={task_id}", "data": None}, status=404)
+
+    if request.method == "GET":
+        course = task.courseBelongTo
+        return JsonResponse({
+            "code": 0,
+            "message": "ok",
+            "data": {
+                "id": task.id,
+                "title": task.title,
+                "content": task.content,
+                "display": task.display,
+                "deadline": task.deadline.isoformat() if task.deadline else None,
+                "fileType": task.fileType,
+                "has_template": task_has_template_file(task),
+                "template_original_name": task.template_original_name or None,
+                "template_uploaded_at": task.template_uploaded_at.isoformat() if task.template_uploaded_at else None,
+                "enable_template_download": task.enable_template_download,
+                "enable_cover_autofill": task.enable_cover_autofill,
+                "course": {
+                    "id": course.id,
+                    "courseTerm": course.courseTerm,
+                    "courseName": course.courseName,
+                    "classNumber": course.classNumber,
+                },
+            },
+        })
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"code": 400, "message": "请求体须为 JSON", "data": None}, status=400)
+
+    if not isinstance(payload, dict):
+        return JsonResponse({"code": 400, "message": "请求体须为 JSON 对象", "data": None}, status=400)
+
+    allowed = {"deadline", "display", "title", "content", "fileType", "enable_template_download", "enable_cover_autofill"}
+    unknown = set(payload.keys()) - allowed
+    if unknown:
+        return JsonResponse({
+            "code": 400,
+            "message": f"不支持的字段: {', '.join(sorted(unknown))}",
+            "data": None,
+        }, status=400)
+
+    update_fields = []
+    if "deadline" in payload:
+        d, err = _parse_deadline(payload["deadline"])
+        if err:
+            return JsonResponse({"code": 400, "message": err, "data": None}, status=400)
+        task.deadline = d
+        update_fields.append("deadline")
+    if "display" in payload:
+        val = payload["display"]
+        if not isinstance(val, bool):
+            if isinstance(val, str) and val.lower() in ("true", "1", "yes"):
+                val = True
+            elif isinstance(val, str) and val.lower() in ("false", "0", "no"):
+                val = False
+            else:
+                return JsonResponse({"code": 400, "message": "display 须为布尔值", "data": None}, status=400)
+        task.display = val
+        update_fields.append("display")
+    if "title" in payload:
+        title = str(payload["title"] or "").strip()
+        if not title:
+            return JsonResponse({"code": 400, "message": "title 不能为空", "data": None}, status=400)
+        task.title = title[:100]
+        update_fields.append("title")
+    if "content" in payload:
+        task.content = str(payload["content"] if payload["content"] is not None else "")
+        update_fields.append("content")
+    if "fileType" in payload:
+        ft_raw = str(payload["fileType"] or "*")[:50]
+        ft_err, ft_ok = validate_file_type_setting(ft_raw)
+        if ft_err:
+            return JsonResponse({"code": 400, "message": ft_err, "data": None}, status=400)
+        task.fileType = ft_ok
+        update_fields.append("fileType")
+
+    if "enable_template_download" in payload or "enable_cover_autofill" in payload:
+        if not task_has_template_file(task):
+            return JsonResponse({"code": 400, "message": "请先上传报告模板后再修改开关", "data": None}, status=400)
+    if "enable_template_download" in payload:
+        val = payload["enable_template_download"]
+        if not isinstance(val, bool):
+            return JsonResponse({"code": 400, "message": "enable_template_download 须为布尔值", "data": None}, status=400)
+        task.enable_template_download = val
+        update_fields.append("enable_template_download")
+    if "enable_cover_autofill" in payload:
+        val = payload["enable_cover_autofill"]
+        if not isinstance(val, bool):
+            return JsonResponse({"code": 400, "message": "enable_cover_autofill 须为布尔值", "data": None}, status=400)
+        task.enable_cover_autofill = val
+        update_fields.append("enable_cover_autofill")
+
+    if not update_fields:
+        return JsonResponse({"code": 400, "message": "未提供可更新字段", "data": None}, status=400)
+
+    try:
+        task.save(update_fields=update_fields)
+    except Exception as e:
+        logger.exception("task_settings_api save failed")
+        return JsonResponse({"code": 500, "message": str(e), "data": None}, status=500)
+
+    return JsonResponse({
+        "code": 0,
+        "message": "updated",
+        "data": {
+            "id": task.id,
+            "title": task.title,
+            "display": task.display,
+            "deadline": task.deadline.isoformat() if task.deadline else None,
+            "fileType": task.fileType,
+            "updated_fields": update_fields,
+        },
+    })
+
+
+@login_required
+@require_GET
+def impersonate_search(request):
+    """超管搜索可切换用户（姓名/学号），可选 course_id 过滤。"""
+    if not impersonation_helpers.can_start_impersonation(request):
+        return JsonResponse({"code": 403, "message": "无权搜索（需超级管理员且未在模拟中）", "data": None}, status=403)
+
+    q = (request.GET.get("q") or "").strip()
+    course_id = (request.GET.get("course_id") or "").strip()
+    role = (request.GET.get("role") or "").strip().upper()  # S / T / 空
+
+    qs = User.objects.filter(is_active=True, is_superuser=False).select_related("profile")
+    if course_id.isdigit():
+        qs = qs.filter(profile__course_set__id=int(course_id)).distinct()
+    if role in ("S", "T"):
+        qs = qs.filter(profile__type=role)
+    if q:
+        qs = qs.filter(
+            Q(username__icontains=q) | Q(profile__name__icontains=q)
+        )
+
+    users = list(qs.order_by("username")[:30])
+    data = []
+    for u in users:
+        try:
+            pname = u.profile.name
+            ptype = u.profile.type
+        except Exception:
+            pname, ptype = u.username, "?"
+        data.append({
+            "id": u.id,
+            "username": u.username,
+            "name": pname,
+            "type": ptype,
+        })
+
+    recent_ids = request.session.get(impersonation_helpers.SESSION_RECENT) or []
+    recent = []
+    if recent_ids:
+        recent_map = {
+            u.id: u for u in User.objects.filter(pk__in=recent_ids, is_superuser=False)
+            .select_related("profile")
+        }
+        for rid in recent_ids:
+            u = recent_map.get(int(rid))
+            if not u:
+                continue
+            try:
+                pname, ptype = u.profile.name, u.profile.type
+            except Exception:
+                pname, ptype = u.username, "?"
+            recent.append({"id": u.id, "username": u.username, "name": pname, "type": ptype})
+
+    courses = list(
+        models.Course.objects.order_by("-courseTerm", "courseName", "classNumber")
+        .values("id", "courseTerm", "courseName", "classNumber")[:200]
+    )
+    return JsonResponse({
+        "code": 0,
+        "message": "ok",
+        "data": {"users": data, "recent": recent, "courses": courses},
+    })
+
+
+@login_required
+@require_POST
+def impersonate_start(request):
+    if not impersonation_helpers.can_start_impersonation(request):
+        return JsonResponse({"code": 403, "message": "无权切换身份", "data": None}, status=403)
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        payload = {}
+    user_id = payload.get("user_id") or request.POST.get("user_id")
+    if not user_id:
+        return JsonResponse({"code": 400, "message": "缺少 user_id", "data": None}, status=400)
+    target = User.objects.filter(pk=user_id).first()
+    if not target:
+        return JsonResponse({"code": 404, "message": "用户不存在", "data": None}, status=404)
+    ok, msg = impersonation_helpers.start_impersonation(request, target)
+    if not ok:
+        return JsonResponse({"code": 400, "message": msg, "data": None}, status=400)
+    try:
+        ptype = target.profile.type
+    except Exception:
+        ptype = 'S'
+    redirect_url = '/studentCourseList/' if ptype == 'S' else '/teacherCourseList/'
+    return JsonResponse({
+        "code": 0,
+        "message": "ok",
+        "data": {
+            "id": target.id,
+            "username": target.username,
+            "name": getattr(getattr(target, "profile", None), "name", target.username),
+            "type": ptype,
+            "redirect_url": redirect_url,
+        },
+    })
+
+
+@login_required
+@require_POST
+def impersonate_stop(request):
+    ok, msg = impersonation_helpers.stop_impersonation(request)
+    if not ok:
+        return JsonResponse({"code": 400, "message": msg, "data": None}, status=400)
+    return JsonResponse({"code": 0, "message": "ok", "data": None})
+
+
+@login_required
+@require_POST
+def save_homework_grades_batch(request):
+    """教师批量保存定性批改。"""
+    if not is_teacher_or_admin(request.user):
+        return JsonResponse({'code': 403, 'message': '无权批改', 'data': None}, status=403)
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'code': 400, 'message': '请求体须为 JSON', 'data': None}, status=400)
+    items = payload.get('items') or []
+    if not isinstance(items, list) or not items:
+        return JsonResponse({'code': 400, 'message': 'items 不能为空', 'data': None}, status=400)
+
+    saved = []
+    errors = []
+    for item in items:
+        if not isinstance(item, dict):
+            errors.append({'homework_id': None, 'message': '条目格式错误'})
+            continue
+        hw_id = item.get('homework_id')
+        letter = (item.get('letter_grade') or '').strip()
+        if not hw_id:
+            errors.append({'homework_id': hw_id, 'message': '缺少 homework_id'})
+            continue
+        if not letter:
+            continue  # 未选等级则跳过
+        homework = models.Homework.objects.filter(pk=hw_id).first()
+        if not homework:
+            errors.append({'homework_id': hw_id, 'message': '提交记录不存在'})
+            continue
+        score = item['score'] if 'score' in item else SCORE_UNSET
+        try:
+            grade, _ = upsert_grade(
+                homework, letter, item.get('comment'), request.user, score=score,
+            )
+            saved.append({'homework_id': hw_id, 'grade': serialize_grade(grade, for_student=False)})
+        except ValueError as e:
+            errors.append({'homework_id': hw_id, 'message': str(e)})
+
+    return JsonResponse({
+        'code': 0 if not errors else (0 if saved else 400),
+        'message': f'已保存 {len(saved)} 条' + (f'，失败 {len(errors)} 条' if errors else ''),
+        'data': {'saved_count': len(saved), 'saved': saved, 'errors': errors},
+    }, status=200 if saved or not errors else 400)
+
+
+@login_required
+def task_grade_summary(request, taskID):
+    """作业定性成绩汇总页。"""
+    if not is_teacher_or_admin(request.user):
+        return HttpResponse('您没有权限进行该操作！')
+    task = get_object_or_404(Task, pk=taskID)
+    course = task.courseBelongTo
+    summary = build_grade_summary(task)
+    return render(request, 'gradeSummary.html', {
+        'name': get_display_name(request.user),
+        'course': course,
+        'task': task,
+        'summary': summary,
+        'letter_choices': LETTER_CHOICES,
+    })
+
+
+@login_required
+def task_grade_summary_export(request, taskID):
+    """导出成绩汇总 Excel。"""
+    if not is_teacher_or_admin(request.user):
+        return HttpResponse('您没有权限进行该操作！')
+    import openpyxl
+    from openpyxl.styles import Font
+    from io import BytesIO
+
+    task = get_object_or_404(Task, pk=taskID)
+    course = task.courseBelongTo
+    summary = build_grade_summary(task)
+
+    wb = openpyxl.Workbook()
+    ws1 = wb.active
+    ws1.title = '汇总'
+    ws1.append(['课程', course.courseName])
+    ws1.append(['班号', course.classNumber])
+    ws1.append(['作业', task.title])
+    ws1.append([])
+    ws1.append(['应交', summary['expected']])
+    ws1.append(['已提交', summary['submitted']])
+    ws1.append(['已批改', summary['graded']])
+    ws1.append(['未批改', summary['ungraded']])
+    ws1.append(['不合格F', summary['fail_count']])
+    ws1.append(['待重评', summary['needs_regrade_count']])
+    ws1.append([])
+    ws1.append(['等级', '人数', f'占比%(分母=应交{summary["expected"]})'])
+    for d in summary['distribution']:
+        ws1.append([d['letter'], d['count'], d['percent']])
+    if summary.get('ungraded'):
+        ws1.append(['未批改', summary['ungraded'], round(100.0 * summary['ungraded'] / summary['expected'], 1) if summary['expected'] else 0])
+    if summary.get('not_submitted'):
+        ws1.append(['未提交', summary['not_submitted'], round(100.0 * summary['not_submitted'] / summary['expected'], 1) if summary['expected'] else 0])
+
+    ws2 = wb.create_sheet('明细')
+    ws2.append(['学号', '姓名', '等级', '参考分', '评语', '待重评'])
+    for d in summary['distribution']:
+        for s in d['students']:
+            score = s.get('score')
+            ws2.append([
+                s['number'], s['name'], s['letter_grade'],
+                '' if score is None else score,
+                s.get('comment') or '',
+                '是' if s.get('needs_regrade') else '',
+            ])
+    for s in summary['ungraded_list']:
+        ws2.append([s['number'], s['name'], '未批改', '', '', ''])
+
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    filename = f'成绩汇总_{safe_filename(task.title)}.xlsx'
+    resp = HttpResponse(
+        bio.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    resp['Content-Disposition'] = 'attachment; filename=' + filename.encode('utf-8').decode('ISO-8859-1')
+    return resp
+
+
+# ===== PHASE1_GRADE_API =====
+
+@login_required
+@require_POST
+def save_homework_grade(request):
+    """教师定性批改保存（页面 AJAX）。"""
+    if not is_teacher_or_admin(request.user):
+        return JsonResponse({'code': 403, 'message': '无权批改', 'data': None}, status=403)
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        payload = {
+            'homework_id': request.POST.get('homework_id'),
+            'letter_grade': request.POST.get('letter_grade'),
+            'comment': request.POST.get('comment'),
+        }
+        if 'score' in request.POST:
+            payload['score'] = request.POST.get('score')
+    hw_id = payload.get('homework_id')
+    if not hw_id:
+        return JsonResponse({'code': 400, 'message': '缺少 homework_id', 'data': None}, status=400)
+    homework = models.Homework.objects.select_related('task', 'task__courseBelongTo').filter(pk=hw_id).first()
+    if not homework:
+        return JsonResponse({'code': 404, 'message': '提交记录不存在', 'data': None}, status=404)
+    score = payload['score'] if 'score' in payload else SCORE_UNSET
+    try:
+        grade, created = upsert_grade(
+            homework,
+            payload.get('letter_grade'),
+            payload.get('comment'),
+            request.user,
+            score=score,
+        )
+    except ValueError as e:
+        return JsonResponse({'code': 400, 'message': str(e), 'data': None}, status=400)
+
+    return JsonResponse({
+        'code': 0,
+        'message': 'ok',
+        'data': serialize_grade(grade, for_student=False),
+    })
+
+
+def _find_homework_for_api(task, student_number=None, homework_id=None):
+    if homework_id:
+        return models.Homework.objects.filter(pk=homework_id, task=task).select_related('user', 'user__user').first()
+    if student_number:
+        return models.Homework.objects.filter(
+            task=task, user__user__username=str(student_number).strip()
+        ).select_related('user', 'user__user').first()
+    return None
+
+
+@require_api_key
+@csrf_exempt
+@require_http_methods(['GET'])
+
+@require_api_key
+@csrf_exempt
+@require_http_methods(["POST", "DELETE"])
+
+
+@require_api_key
+@csrf_exempt
+@require_http_methods(["GET", "PUT", "DELETE"])
+def task_precheck_api(request, task_id):
+    """
+    作业框架预检规则包（需 API Key）。
+    GET：返回模式/规则包元数据与内容
+    PUT：JSON body 写入规则包，可选 version；也可带 precheck_mode / precheck_fail_mode
+    DELETE：清空规则包（不自动改模式）
+    """
+    task = models.Task.objects.filter(pk=task_id).select_related("courseBelongTo").first()
+    if not task:
+        return JsonResponse({"code": 404, "message": f"未找到作业 id={task_id}", "data": None}, status=404)
+
+    if request.method == "GET":
+        plan = resolve_precheck_plan(task)
+        return JsonResponse({
+            "code": 0,
+            "message": "ok",
+            "data": {
+                "task_id": task.id,
+                "precheck_mode": task.precheck_mode,
+                "precheck_fail_mode": task.precheck_fail_mode,
+                "package_version": task.precheck_package_version or None,
+                "package_updated_at": task.precheck_package_updated_at.isoformat() if task.precheck_package_updated_at else None,
+                "package": json.loads(task.precheck_package_json) if (task.precheck_package_json or "").strip() else None,
+                "effective": {
+                    "do_cover": plan.do_cover,
+                    "do_framework": plan.do_framework,
+                    "fail_mode": plan.fail_mode,
+                    "skip_reason": plan.skip_reason,
+                },
+                "course": {
+                    "precheck_master": task.courseBelongTo.precheck_master,
+                    "precheck_cover_mode": task.courseBelongTo.precheck_cover_mode,
+                },
+            },
+        })
+
+    if request.method == "DELETE":
+        task.precheck_package_json = ""
+        task.precheck_package_version = ""
+        task.precheck_package_updated_at = None
+        task.save(update_fields=["precheck_package_json", "precheck_package_version", "precheck_package_updated_at"])
+        return JsonResponse({"code": 0, "message": "ok", "data": {"cleared": True}})
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"code": 400, "message": "请求体须为 JSON", "data": None}, status=400)
+    if not isinstance(payload, dict):
+        return JsonResponse({"code": 400, "message": "请求体须为 JSON 对象", "data": None}, status=400)
+
+    update_fields = []
+    if "precheck_mode" in payload:
+        mode = str(payload["precheck_mode"] or "").strip()
+        allowed_modes = {c[0] for c in models.Task.PRECHECK_MODE_CHOICES}
+        if mode not in allowed_modes:
+            return JsonResponse({"code": 400, "message": f"precheck_mode 无效", "data": None}, status=400)
+        task.precheck_mode = mode
+        update_fields.append("precheck_mode")
+    if "precheck_fail_mode" in payload:
+        fm = str(payload["precheck_fail_mode"] or "").strip()
+        allowed_fm = {c[0] for c in models.Task.PRECHECK_FAIL_CHOICES}
+        if fm not in allowed_fm:
+            return JsonResponse({"code": 400, "message": "precheck_fail_mode 无效", "data": None}, status=400)
+        task.precheck_fail_mode = fm
+        update_fields.append("precheck_fail_mode")
+
+    if "package" in payload:
+        pkg = payload["package"]
+        if pkg is None:
+            task.precheck_package_json = ""
+            task.precheck_package_version = ""
+            task.precheck_package_updated_at = None
+            update_fields.extend(["precheck_package_json", "precheck_package_version", "precheck_package_updated_at"])
+        else:
+            raw = json.dumps(pkg, ensure_ascii=False) if isinstance(pkg, dict) else str(pkg)
+            err, parsed = validate_precheck_package(raw if isinstance(pkg, dict) else raw)
+            if err:
+                return JsonResponse({"code": 400, "message": err, "data": None}, status=400)
+            task.precheck_package_json = json.dumps(parsed, ensure_ascii=False)
+            task.precheck_package_version = str(payload.get("version") or parsed.get("version") or "")[:64]
+            task.precheck_package_updated_at = timezone.now()
+            update_fields.extend(["precheck_package_json", "precheck_package_version", "precheck_package_updated_at"])
+
+    if not update_fields:
+        return JsonResponse({"code": 400, "message": "无有效字段（package / precheck_mode / precheck_fail_mode）", "data": None}, status=400)
+    task.save(update_fields=list(dict.fromkeys(update_fields)))
+    plan = resolve_precheck_plan(task)
+    return JsonResponse({
+        "code": 0,
+        "message": "ok",
+        "data": {
+            "precheck_mode": task.precheck_mode,
+            "precheck_fail_mode": task.precheck_fail_mode,
+            "package_version": task.precheck_package_version or None,
+            "effective": {
+                "do_cover": plan.do_cover,
+                "do_framework": plan.do_framework,
+                "fail_mode": plan.fail_mode,
+                "skip_reason": plan.skip_reason,
+            },
+        },
+    })
+
+def task_template_api(request, task_id):
+    """
+    作业报告模板上传/删除（需 API Key）。
+    POST multipart: file=<docx>
+    DELETE: 删除模板并关闭开关
+    """
+    task = models.Task.objects.filter(pk=task_id).select_related("courseBelongTo").first()
+    if not task:
+        return JsonResponse({"code": 404, "message": f"未找到作业 id={task_id}", "data": None}, status=404)
+
+    if request.method == "DELETE":
+        clear_task_template_files(task)
+        task.template_path = ""
+        task.template_original_name = ""
+        task.template_uploaded_at = None
+        task.enable_template_download = False
+        task.enable_cover_autofill = False
+        task.save(update_fields=[
+            "template_path", "template_original_name", "template_uploaded_at",
+            "enable_template_download", "enable_cover_autofill",
+        ])
+        return JsonResponse({"code": 0, "message": "ok", "data": {"has_template": False}})
+
+    f = request.FILES.get("file")
+    if not f:
+        return JsonResponse({"code": 400, "message": "请上传 file 字段（.docx）", "data": None}, status=400)
+    err, _ = save_uploaded_template(task, f)
+    if err:
+        return JsonResponse({"code": 400, "message": err, "data": None}, status=400)
+    task.refresh_from_db()
+    return JsonResponse({
+        "code": 0,
+        "message": "ok",
+        "data": {
+            "has_template": True,
+            "template_original_name": task.template_original_name,
+            "template_uploaded_at": task.template_uploaded_at.isoformat() if task.template_uploaded_at else None,
+            "enable_template_download": task.enable_template_download,
+            "enable_cover_autofill": task.enable_cover_autofill,
+        },
+    })
+
+
+def task_grades_api(request, task_id):
+    """某作业全部定性成绩（需 API Key）。"""
+    task = models.Task.objects.filter(pk=task_id).first()
+    if not task:
+        return JsonResponse({'code': 404, 'message': f'未找到作业 id={task_id}', 'data': None}, status=404)
+    homeworks = models.Homework.objects.filter(task=task).select_related('user', 'user__user', 'grade')
+    rows = []
+    for hw in homeworks:
+        try:
+            g = hw.grade
+        except HomeworkGrade.DoesNotExist:
+            g = None
+        rows.append({
+            'homework_id': hw.id,
+            'student_number': hw.user.user.username,
+            'student_name': hw.user.name,
+            'grade': serialize_grade(g, for_student=False),
+        })
+    return JsonResponse({'code': 0, 'message': 'ok', 'data': {'task_id': task.id, 'grades': rows}})
+
+
+@require_api_key
+@csrf_exempt
+@require_http_methods(['GET', 'PUT', 'PATCH'])
+def homework_grade_api(request, homework_id):
+    """单条提交的定性成绩读写（需 API Key）。"""
+    homework = models.Homework.objects.select_related('user', 'user__user', 'task').filter(pk=homework_id).first()
+    if not homework:
+        return JsonResponse({'code': 404, 'message': f'未找到提交 id={homework_id}', 'data': None}, status=404)
+
+    if request.method == 'GET':
+        try:
+            g = homework.grade
+        except HomeworkGrade.DoesNotExist:
+            g = None
+        return JsonResponse({
+            'code': 0,
+            'message': 'ok',
+            'data': {
+                'homework_id': homework.id,
+                'student_number': homework.user.user.username,
+                'task_id': homework.task_id,
+                'grade': serialize_grade(g, for_student=False),
+            },
+        })
+
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'code': 400, 'message': '请求体须为 JSON', 'data': None}, status=400)
+    if 'letter_grade' not in payload:
+        return JsonResponse({'code': 400, 'message': '缺少 letter_grade', 'data': None}, status=400)
+    # API 无登录用户：graded_by 置空
+    score = payload['score'] if 'score' in payload else SCORE_UNSET
+    try:
+        grade, _ = upsert_grade(
+            homework, payload.get('letter_grade'), payload.get('comment'), None, score=score,
+        )
+    except ValueError as e:
+        return JsonResponse({'code': 400, 'message': str(e), 'data': None}, status=400)
+    return JsonResponse({
+        'code': 0,
+        'message': 'updated',
+        'data': serialize_grade(grade, for_student=False),
+    })
+
+
+@require_api_key
+@csrf_exempt
+@require_http_methods(['PUT', 'PATCH'])
+def task_student_grade_api(request, task_id, student_number):
+    """按作业 + 学号写入定性成绩（需 API Key）。"""
+    task = models.Task.objects.filter(pk=task_id).first()
+    if not task:
+        return JsonResponse({'code': 404, 'message': f'未找到作业 id={task_id}', 'data': None}, status=404)
+    homework = _find_homework_for_api(task, student_number=student_number)
+    if not homework:
+        return JsonResponse({
+            'code': 404,
+            'message': f'未找到该学生的提交记录：{student_number}',
+            'data': None,
+        }, status=404)
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'code': 400, 'message': '请求体须为 JSON', 'data': None}, status=400)
+    if 'letter_grade' not in payload:
+        return JsonResponse({'code': 400, 'message': '缺少 letter_grade', 'data': None}, status=400)
+    score = payload['score'] if 'score' in payload else SCORE_UNSET
+    try:
+        grade, _ = upsert_grade(
+            homework, payload.get('letter_grade'), payload.get('comment'), None, score=score,
+        )
+    except ValueError as e:
+        return JsonResponse({'code': 400, 'message': str(e), 'data': None}, status=400)
+    return JsonResponse({
+        'code': 0,
+        'message': 'updated',
+        'data': {
+            'homework_id': homework.id,
+            'student_number': student_number,
+            'grade': serialize_grade(grade, for_student=False),
+        },
+    })
+
+
+@require_api_key
+@csrf_exempt
+@require_http_methods(['GET'])
+def task_grades_summary_api(request, task_id):
+    """作业定性成绩汇总（需 API Key）。"""
+    task = models.Task.objects.filter(pk=task_id).first()
+    if not task:
+        return JsonResponse({'code': 404, 'message': f'未找到作业 id={task_id}', 'data': None}, status=404)
+    summary = build_grade_summary(task)
+    return JsonResponse({'code': 0, 'message': 'ok', 'data': {'task_id': task.id, 'summary': summary}})

@@ -12,6 +12,15 @@
 </head>
 <body>
 
+{% if is_impersonating %}
+<div class="alert alert-warning text-center mb-0 rounded-0 py-2" role="alert" style="position:sticky;top:0;z-index:1080;">
+  <i class="bi bi-exclamation-triangle-fill"></i>
+  正在以 <strong>{{ request.user.profile.name }}（{{ request.user.username }}）</strong> 的身份操作
+  （真实账号：{{ impersonator.username }}）
+  <button type="button" class="btn btn-sm btn-dark ms-2" id="btn-impersonate-stop">退出切换</button>
+</div>
+{% endif %}
+
 <!-- ════════ 顶部导航栏 ════════ -->
 <nav class="navbar navbar-expand-lg navbar-mycourse mb-3">
   <div class="container-fluid" style="max-width:1200px; margin:0 auto;">
@@ -43,6 +52,14 @@
               <i class="bi bi-person"></i> 个人信息
             </a>
           </li>
+          
+          {% if request.user.is_superuser and not is_impersonating %}
+            <li class="nav-item">
+              <a class="nav-link" href="#" id="btn-impersonate-open" data-bs-toggle="modal" data-bs-target="#impersonateModal">
+                <i class="bi bi-people"></i> 切换身份
+              </a>
+            </li>
+          {% endif %}
           {% if request.user.is_superuser %}
             <li class="nav-item">
               <a class="nav-link {% block nav_admin %}{% endblock %}" href="{% url 'manager' %}">
@@ -75,5 +92,147 @@
 <script src="{% static 'js/jquery.min.js' %}"></script>
 <script src="{% static 'js/bootstrap5.1.3.bundle.min.js' %}"></script>
 {% block extra_js %}{% endblock %}
+
+{% if request.user.is_superuser and not is_impersonating %}
+<div class="modal fade" id="impersonateModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-people"></i> 切换为其他用户</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-2 mb-3">
+          <div class="col-md-4">
+            <label class="form-label small mb-1">关键词（姓名/学号）</label>
+            <input type="text" class="form-control" id="impersonate-q" placeholder="输入即搜索" autocomplete="off">
+          </div>
+          <div class="col-md-5">
+            <label class="form-label small mb-1">课程筛选（可搜索）</label>
+            <input type="text" class="form-control mb-1" id="impersonate-course-filter" placeholder="过滤课程…">
+            <select class="form-select" id="impersonate-course" size="6">
+              <option value="" selected>全部课程</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small mb-1">角色</label>
+            <select class="form-select" id="impersonate-role">
+              <option value="">全部</option>
+              <option value="S">学生</option>
+              <option value="T">教师</option>
+            </select>
+          </div>
+        </div>
+        <div class="mb-2"><strong class="small text-muted">最近切换</strong></div>
+        <div id="impersonate-recent" class="list-group mb-3"></div>
+        <div class="mb-2"><strong class="small text-muted">搜索结果</strong></div>
+        <div id="impersonate-results" class="list-group" style="max-height:320px;overflow:auto;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+(function () {
+  function csrfToken() {
+    var name = 'mycourse_csrftoken=';
+    var parts = document.cookie.split(';');
+    for (var i = 0; i < parts.length; i++) {
+      var c = parts[i].trim();
+      if (c.indexOf(name) === 0) return decodeURIComponent(c.substring(name.length));
+    }
+    return '';
+  }
+  function roleLabel(t) {
+    if (t === 'T') return '教师';
+    if (t === 'S') return '学生';
+    return t || '';
+  }
+  function renderUserList(el, users, emptyText) {
+    if (!el) return;
+    if (!users || !users.length) {
+      el.innerHTML = '<div class="text-muted small p-2">' + (emptyText || '无') + '</div>';
+      return;
+    }
+    el.innerHTML = users.map(function (u) {
+      return '<button type="button" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center impersonate-pick" data-id="' + u.id + '">'
+        + '<span><strong>' + (u.name || '') + '</strong> <span class="text-muted">' + u.username + '</span></span>'
+        + '<span class="badge bg-secondary">' + roleLabel(u.type) + '</span></button>';
+    }).join('');
+  }
+  var coursesLoaded = false;
+  function loadSearch() {
+    if (!$('#impersonateModal').length) return;
+    var q = ($('#impersonate-q').val() || '').trim();
+    var courseId = $('#impersonate-course').val() || '';
+    var role = $('#impersonate-role').val() || '';
+    $.getJSON('{% url "impersonate_search" %}', { q: q, course_id: courseId, role: role })
+      .done(function (resp) {
+        if (resp.code !== 0) return;
+        var data = resp.data || {};
+        if (!coursesLoaded && data.courses) {
+          data.courses.forEach(function (c) {
+            var label = c.courseTerm + ' · ' + c.courseName + c.classNumber;
+            $('#impersonate-course').append(
+              $('<option>').val(c.id).text(label).attr('data-label', label.toLowerCase())
+            );
+          });
+          coursesLoaded = true;
+        }
+        renderUserList(document.getElementById('impersonate-recent'), data.recent, '暂无最近记录');
+        renderUserList(document.getElementById('impersonate-results'), data.users, q ? '无匹配用户' : '输入关键词或选择课程后搜索');
+      });
+  }
+  var searchTimer = null;
+  $(document).on('shown.bs.modal', '#impersonateModal', function () {
+    loadSearch();
+    $('#impersonate-q').trigger('focus');
+  });
+  $(document).on('input', '#impersonate-q', function () {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(loadSearch, 250);
+  });
+  $(document).on('change', '#impersonate-course, #impersonate-role', loadSearch);
+  $(document).on('input', '#impersonate-course-filter', function () {
+    var kw = (($(this).val() || '') + '').toLowerCase();
+    $('#impersonate-course option').each(function () {
+      var v = $(this).val();
+      if (!v) { $(this).show(); return; }
+      var label = ($(this).attr('data-label') || $(this).text() || '').toLowerCase();
+      $(this).toggle(!kw || label.indexOf(kw) >= 0);
+    });
+  });
+  $(document).on('click', '.impersonate-pick', function () {
+    var id = $(this).data('id');
+    $.ajax({
+      url: '{% url "impersonate_start" %}',
+      method: 'POST',
+      contentType: 'application/json',
+      headers: { 'X-CSRFToken': csrfToken() },
+      data: JSON.stringify({ user_id: id })
+    }).done(function (resp) {
+      if (resp.code === 0) {
+        var url = (resp.data && resp.data.redirect_url) || '/studentCourseList/';
+        window.location.href = url;
+      }
+      else alert(resp.message || '切换失败');
+    }).fail(function (xhr) {
+      alert((xhr.responseJSON && xhr.responseJSON.message) || '切换失败');
+    });
+  });
+  $(document).on('click', '#btn-impersonate-stop', function () {
+    $.ajax({
+      url: '{% url "impersonate_stop" %}',
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrfToken() }
+    }).done(function (resp) {
+      if (resp.code === 0) window.location.href = '{% url "teacherCourseList" %}';
+      else alert(resp.message || '退出失败');
+    }).fail(function () { alert('退出失败'); });
+  });
+})();
+</script>
+
 </body>
 </html>

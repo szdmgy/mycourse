@@ -118,3 +118,55 @@ def can_manage_course(user, course):
     if user.profile.type != 'T':
         return False
     return course.members.filter(user=user).exists()
+
+
+DOC_FORBIDDEN_MSG = (
+    "系统不支持旧版 Word（.doc）文件，请使用 .docx 格式后重试。"
+)
+
+
+def is_legacy_doc_filename(name: str) -> bool:
+    """True for .doc but not .docx."""
+    n = (name or "").strip().lower()
+    return n.endswith(".doc") and not n.endswith(".docx")
+
+
+def parse_file_type_tokens(file_type: str) -> list:
+    ft = (file_type or "*").strip()
+    if not ft or ft == "*":
+        return ["*"]
+    return [t.strip().lower().lstrip(".") for t in ft.split(",") if t.strip()]
+
+
+def file_type_setting_has_legacy_doc(file_type: str) -> bool:
+    """作业允许类型里是否显式包含 .doc（不含 docx）。"""
+    tokens = parse_file_type_tokens(file_type)
+    return "doc" in tokens
+
+
+def validate_file_type_setting(file_type: str):
+    """
+    校验老师配置的允许文件类型。
+    返回 (error_or_None, normalized_file_type)。
+    """
+    raw = (file_type or "*").strip() or "*"
+    if file_type_setting_has_legacy_doc(raw):
+        return DOC_FORBIDDEN_MSG + "请在允许类型中填写 .docx，不要填写 .doc。", raw
+    return None, raw
+
+
+def sanitize_file_type_setting(file_type: str) -> str:
+    """导入等场景：将 .doc 自动改为 .docx，避免写入非法配置。"""
+    err, ft = validate_file_type_setting(file_type)
+    if not err:
+        return ft
+    tokens = parse_file_type_tokens(file_type)
+    if tokens == ["*"]:
+        return "*"
+    out = []
+    for tok in tokens:
+        if tok == "doc":
+            tok = "docx"
+        if tok not in out:
+            out.append(tok)
+    return ",".join("." + x if x != "*" else "*" for x in out) if out else "*"

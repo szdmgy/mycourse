@@ -24,6 +24,71 @@
     </ol>
   </nav>
 
+
+  {% if fail_grade and fail_grade.needs_regrade %}
+  <div class="alert alert-warning d-flex align-items-start gap-2" role="alert">
+    <i class="bi bi-hourglass-split fs-4"></i>
+    <div>
+      <strong>已重新提交，等待教师重评</strong>
+      <div class="mt-1">重评前成绩仍计为不合格（F）。{% if fail_grade.comment %}<br><strong>原评语：</strong>{{ fail_grade.comment }}{% endif %}</div>
+    </div>
+  </div>
+  {% elif fail_grade %}
+  <div class="alert alert-danger d-flex align-items-start gap-2" role="alert">
+    <i class="bi bi-exclamation-octagon-fill fs-4"></i>
+    <div>
+      <strong>本作业成绩：不合格（F）</strong>
+      <div class="mt-1">请根据要求重新提交报告。{% if fail_grade.comment %}<br><strong>教师评语：</strong>{{ fail_grade.comment }}{% endif %}</div>
+    </div>
+  </div>
+  {% endif %}
+
+
+  {% if template_download %}
+  <div class="alert alert-info d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+    <div>
+      <strong><i class="bi bi-file-earmark-word"></i> 报告模板</strong>
+      {% if template_autofill %}
+      <span class="ms-1">请先下载本实验报告模板（已自动填写姓名、学号、班级），写完后再在下方上传。</span>
+      {% else %}
+      <span class="ms-1">请先下载本实验报告模板，写完后再在下方上传。</span>
+      {% endif %}
+    </div>
+    <a href="{% url 'downloadTaskTemplate' task.id %}" class="btn btn-success btn-sm">
+      <i class="bi bi-download"></i> 下载报告模板
+    </a>
+  </div>
+  {% endif %}
+
+
+  {% if precheck_warn_active %}
+  <div class="alert alert-warning border-warning d-flex align-items-start gap-2" role="alert">
+    <i class="bi bi-exclamation-triangle-fill fs-4"></i>
+    <div>
+      <strong>当前提交带有预检警告</strong>
+      <div class="mt-1" style="font-size:.9rem; white-space:pre-wrap;">{{ precheck_warn_text }}</div>
+      <div class="mt-1 text-muted" style="font-size:.85rem;">重新提交且预检全部通过后，此警告将自动消除。</div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if precheck.active %}
+  <div class="alert alert-warning d-flex align-items-start gap-2" role="alert">
+    <i class="bi bi-shield-check fs-4"></i>
+    <div>
+      <strong>本作业已开启报告预检</strong>
+      <div class="mt-1" style="font-size:.9rem;">
+        将检查：
+        {% if precheck.do_cover %}封面信息（课程名称、学院/专业、指导教师、报告人/学号/班级；若有实验时间/提交时间则校验日期合理性）{% endif %}
+        {% if precheck.do_cover and precheck.do_framework %}；{% endif %}
+        {% if precheck.do_framework %}报告框架结构{% endif %}。
+        未通过时{% if precheck.fail_mode == 'block' %}<strong>无法提交</strong>{% else %}会警告，确认后仍可提交{% endif %}。
+        请提交 <code>.docx</code> 文件。
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <div class="card mb-3">
     <div class="card-body">
       <h2 class="card-title mb-2">{{ task.title }}</h2>
@@ -68,7 +133,12 @@
           <a href="{% url 'download_homework_file' hw_file.id %}" class="text-decoration-none">
             {{ hw_file.standardName }}
           </a>
-          <span style="font-size:.75rem; color:#888;">（点击下载 | 重新上传将覆盖）</span>
+          {% if hw_file_previewable %}
+          <a href="{% url 'preview_homework_file' hw_file.id %}" target="_blank" class="btn btn-outline-secondary btn-sm ms-2" title="在线预览">
+            <i class="bi bi-eye"></i> 预览
+          </a>
+          {% endif %}
+          <span style="font-size:.75rem; color:#888;">（下载或预览 | 重新上传将覆盖）</span>
         </div>
       {% else %}
         <div class="mt-2" style="font-size:.85rem; color:#999;">
@@ -83,34 +153,82 @@
 
 {% block extra_js %}
 <script>
+
+{% if fail_grade and not fail_grade.needs_regrade %}
+(function(){
+  var key = 'mycourse_f_warn_{{ f_warn_session|escapejs }}_{{ request.user.username|escapejs }}_{{ task.id }}';
+  if (sessionStorage.getItem(key)) return;
+  var msg = '本作业成绩不合格（F），请重新提交报告。';
+  {% if fail_grade.comment %}
+  msg += '\n教师评语：{{ fail_grade.comment|escapejs }}';
+  {% endif %}
+  alert(msg);
+  sessionStorage.setItem(key, '1');
+})();
+{% endif %}
+
+function isLegacyDocName(name){
+  name = (name || '').toLowerCase();
+  return name.endsWith('.doc') && !name.endsWith('.docx');
+}
+(function(){
+  var fi = document.getElementById('fileInput');
+  if (fi) fi.addEventListener('change', function(){
+    if (fi.files.length && isLegacyDocName(fi.files[0].name)) {
+      alert('系统不支持旧版 Word（.doc）文件，请使用 .docx 格式后重试。');
+      fi.value = '';
+    }
+  });
+})();
 function doUpload() {
   var fileInput = document.getElementById('fileInput');
   if (!fileInput.files.length) {
     alert('请先选择文件');
     return;
   }
-  var formData = new FormData(document.getElementById('upload-form'));
-  formData.append('taskId', '{{ task.id }}');
-
-  $.ajax({
-    url: '{% url "upload_file" %}',
-    type: 'POST',
-    data: formData,
-    cache: false,
-    contentType: false,
-    processData: false,
-    success: function(data) {
-      if (data === 'YES') {
-        alert('上传成功！');
-        window.location.reload();
-      } else {
+  if (isLegacyDocName(fileInput.files[0].name)) {
+    alert('系统不支持旧版 Word（.doc）文件，请使用 .docx 格式后重试。');
+    fileInput.value = '';
+    return;
+  }
+  function sendUpload(ack){
+    var fd = new FormData(document.getElementById('upload-form'));
+    fd.append('taskId', '{{ task.id }}');
+    if (ack) fd.append('precheck_ack', '1');
+    $.ajax({
+      url: '{% url "upload_file" %}',
+      type: 'POST',
+      data: fd,
+      cache: false,
+      contentType: false,
+      processData: false,
+      success: function(data) {
+        if (data === 'YES') {
+          alert('上传成功！');
+          window.location.reload();
+          return;
+        }
+        data = data || '';
+        if (data.indexOf('PRECHECK_WARN') === 0) {
+          var msg = data.replace(/^PRECHECK_WARN\n?/, '');
+          if (confirm('预检警告：\n\n' + msg + '\n\n仍要提交吗？')) {
+            sendUpload(true);
+          }
+          return;
+        }
+        if (data.indexOf('PRECHECK_FAIL') === 0) {
+          var msg2 = data.replace(/^PRECHECK_FAIL\n?/, '');
+          alert('预检未通过，已拒绝提交：\n\n' + msg2);
+          return;
+        }
         alert(data || '上传失败');
+      },
+      error: function() {
+        alert('上传失败，请检查文件格式！');
       }
-    },
-    error: function() {
-      alert('上传失败，请检查文件格式！');
-    }
-  });
+    });
+  }
+  sendUpload(false);
 }
 </script>
 {% endblock %}

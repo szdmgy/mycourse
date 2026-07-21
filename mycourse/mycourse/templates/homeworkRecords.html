@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% load static %}
 {% block title %}作业记录 - {{ task.title }}{% endblock %}
 {% block nav_courses %}active{% endblock %}
@@ -19,6 +19,28 @@
       <div class="col-md-3"><strong>作业：</strong>{{ task.title }}</div>
       <div class="col-md-3"><strong>截止日期：</strong>{{ task.deadline|date:"Y-m-d" }}</div>
       <div class="col-md-3"><strong>文件类型：</strong>{{ task.fileType }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-3 border-primary">
+  <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2 justify-content-between">
+    <div style="font-size:.9rem;">
+      <strong>批改进度：</strong>
+      应交 {{ summary.expected }} /
+      已提交 {{ summary.submitted }} /
+      <span class="text-success">已批改 {{ summary.graded }}</span> /
+      <span class="text-secondary">未批改 {{ summary.ungraded }}</span> /
+      <span class="text-danger">F {{ summary.fail_count }}</span>
+      {% if summary.needs_regrade_count %}/ <span class="text-warning">待重评 {{ summary.needs_regrade_count }}</span>{% endif %}
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a href="{% url 'gradeSummary' task.id %}" class="btn btn-outline-primary btn-sm">
+        <i class="bi bi-bar-chart"></i> 成绩汇总
+      </a>
+      <button type="button" class="btn btn-success btn-sm" id="btn-save-all-grades">
+        <i class="bi bi-check2-all"></i> 保存全部修改
+      </button>
     </div>
   </div>
 </div>
@@ -56,20 +78,29 @@
 
 <!-- 已提交学生 -->
 <div class="card mb-3">
-  <div class="card-header d-flex justify-content-between align-items-center">
+  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
     <strong><i class="bi bi-check-circle"></i> 已提交学生</strong>
-    <span class="badge bg-success">{{ submitRecords|length }} 人</span>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <span class="badge bg-success">{{ submitRecords|length }} 人</span>
+      <select id="grade-filter" class="form-select form-select-sm" style="width:auto;">
+        <option value="all">全部</option>
+        <option value="ungraded">只看未批改</option>
+        <option value="fail">只看 F</option>
+        <option value="regrade">只看待重评</option>
+        <option value="precheck_warn">只看预检警告</option>
+      </select>
+    </div>
   </div>
   {% if submitRecords %}
   <div class="card-body p-0">
     <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0">
+      <table class="table table-hover align-middle mb-0" id="submit-grade-table">
         <thead class="table-light">
           <tr>
             <th style="width:40px;">#</th><th>学号</th><th>姓名</th><th>性别</th>
-            <th>提交时间</th><th>附件</th><th>延期</th>
+            <th>首次提交</th><th>最后更新</th><th>附件</th><th>延期</th><th>预检</th><th>成绩</th><th>评语</th>
             <th>
-              选择
+              批改/选择
               <a href="javascript:void(0)" onclick="selAll()" class="ms-2 text-primary" style="font-size:.8rem;">全选</a>
               <a href="javascript:void(0)" onclick="selNone()" class="ms-1 text-primary" style="font-size:.8rem;">全不选</a>
             </th>
@@ -77,23 +108,75 @@
         </thead>
         <tbody>
           {% for rec in submitRecords %}
-          <tr {% if rec.delay %}class="table-warning"{% endif %}>
+          <tr class="{% if rec.delay %}table-warning{% endif %}{% if rec.is_fail %} table-danger{% endif %}"
+              data-graded="{% if rec.letter_grade %}1{% else %}0{% endif %}"
+              data-fail="{% if rec.is_fail %}1{% else %}0{% endif %}"
+              data-regrade="{% if rec.needs_regrade %}1{% else %}0{% endif %}"
+              data-precheck-warn="{% if rec.precheck_warn_active %}1{% else %}0{% endif %}"
+              data-orig-letter="{{ rec.letter_grade }}"
+              data-orig-score="{% if rec.score is not None %}{{ rec.score }}{% endif %}"
+              data-orig-comment="{{ rec.comment|escape }}">
             <td>{{ forloop.counter }}</td>
             <td>{{ rec.number }}</td>
             <td>{{ rec.name }}</td>
             <td>{% if rec.gender == 'M' %}男{% else %}女{% endif %}</td>
-            <td>{{ rec.time|date:"Y-m-d H:i" }}</td>
-            <td>{% if rec.has_file %}<span class="badge bg-success">已上传</span>{% else %}<span class="badge bg-secondary">无文件</span>{% endif %}</td>
+            <td>{% if rec.submitted_at %}{{ rec.submitted_at|date:"Y-m-d H:i" }}{% else %}—{% endif %}</td>
+            <td>{% if rec.updated_at %}{{ rec.updated_at|date:"Y-m-d H:i" }}{% else %}—{% endif %}</td>
+            <td>{% if rec.has_file %}
+              <span class="badge bg-success">已上传</span>
+              {% if rec.previewable and rec.file_id %}
+              <a href="{% url 'preview_homework_file' rec.file_id %}" target="_blank" class="btn btn-outline-secondary btn-sm ms-1" title="在线预览"><i class="bi bi-eye"></i></a>
+              <a href="{% url 'download_homework_file' rec.file_id %}" class="btn btn-outline-primary btn-sm" title="下载"><i class="bi bi-download"></i></a>
+              {% elif rec.file_id %}
+              <a href="{% url 'download_homework_file' rec.file_id %}" class="btn btn-outline-primary btn-sm ms-1" title="下载"><i class="bi bi-download"></i></a>
+              {% endif %}
+            {% else %}<span class="badge bg-secondary">无文件</span>{% endif %}</td>
             <td>{% if rec.delay %}<span class="badge badge-delay">是</span>{% else %}<span class="badge badge-submitted">否</span>{% endif %}</td>
-            <td><input type="checkbox" class="form-check-input hw-chk" data-number="{{ rec.number }}"></td>
+            <td>
+              {% if rec.precheck_warn_active %}
+              <span class="badge bg-warning text-dark" title="{{ rec.precheck_warn_text|escape }}"><i class="bi bi-exclamation-triangle"></i> 警告</span>
+              {% if rec.precheck_warn_text %}
+              <div class="small text-muted mt-1" style="max-width:220px; white-space:pre-wrap; line-height:1.3;">{{ rec.precheck_warn_text }}</div>
+              {% endif %}
+              {% else %}
+              <span class="text-muted" style="font-size:.8rem;">—</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="d-flex align-items-center gap-1 flex-wrap">
+                <select class="form-select form-select-sm grade-letter" data-hw="{{ rec.homework_id }}" style="min-width:72px; width:auto;">
+                  <option value="">—</option>
+                  {% for val, label in letter_choices %}
+                  <option value="{{ val }}" {% if rec.letter_grade == val %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+                <input type="text" class="form-control form-control-sm grade-score" data-hw="{{ rec.homework_id }}"
+                       inputmode="numeric" maxlength="3" placeholder="分" title="可选参考分 0–100"
+                       style="width:3.2rem;"
+                       value="{% if rec.score is not None %}{{ rec.score }}{% endif %}">
+                {% if rec.is_fail %}<span class="badge bg-danger">F</span>{% endif %}
+                {% if rec.needs_regrade %}<span class="badge bg-warning text-dark">待重评</span>{% endif %}
+              </div>
+            </td>
+            <td style="min-width:140px;">
+              <input type="text" class="form-control form-control-sm grade-comment" data-hw="{{ rec.homework_id }}"
+                     value="{{ rec.comment|escape }}" placeholder="可选评语">
+            </td>
+            <td>
+              <button type="button" class="btn btn-sm btn-primary btn-save-grade" data-hw="{{ rec.homework_id }}">保存</button>
+              <input type="checkbox" class="form-check-input hw-chk ms-2" data-number="{{ rec.number }}" title="选中下载">
+            </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
-    <div class="card-body pt-2">
+    <div class="card-body pt-2 d-flex flex-wrap gap-2">
       <button class="btn btn-primary btn-sm" onclick="dlHomework()">
         <i class="bi bi-download"></i> 下载选中作业
+      </button>
+      <button type="button" class="btn btn-success btn-sm" id="btn-save-all-grades-2">
+        <i class="bi bi-check2-all"></i> 保存全部修改
       </button>
     </div>
   </div>
@@ -105,6 +188,148 @@
 
 {% block extra_js %}
 <script>
+function csrfToken(){
+  var name = 'mycourse_csrftoken=';
+  var parts = document.cookie.split(';');
+  for (var i=0;i<parts.length;i++){
+    var c = parts[i].trim();
+    if (c.indexOf(name)===0) return decodeURIComponent(c.substring(name.length));
+  }
+  return '{{ csrf_token }}';
+}
+function scoreVal($row){
+  return ($row.find('.grade-score').val() || '').trim();
+}
+function validateScore(raw){
+  if(raw === '') return {ok: true, value: null};
+  if(!/^\d{1,3}$/.test(raw)) return {ok: false, message: '参考分须为 0–100 的整数'};
+  var n = parseInt(raw, 10);
+  if(n < 0 || n > 100) return {ok: false, message: '参考分须为 0–100 的整数'};
+  return {ok: true, value: n};
+}
+function markDirty($row){
+  var letter = $row.find('.grade-letter').val() || '';
+  var comment = $row.find('.grade-comment').val() || '';
+  var score = scoreVal($row);
+  var origL = $row.attr('data-orig-letter') || '';
+  var origC = $row.attr('data-orig-comment') || '';
+  var origS = $row.attr('data-orig-score') || '';
+  if(letter !== origL || comment !== origC || score !== origS){
+    $row.addClass('table-info');
+  } else {
+    $row.removeClass('table-info');
+  }
+}
+$(document).on('change input', '.grade-letter, .grade-comment, .grade-score', function(){
+  markDirty($(this).closest('tr'));
+});
+function saveOne(hw, btn){
+  var $letter = $('.grade-letter[data-hw="'+hw+'"]');
+  var $row = $letter.closest('tr');
+  var letter = $letter.val();
+  var comment = $('.grade-comment[data-hw="'+hw+'"]').val() || '';
+  var scoreCheck = validateScore(scoreVal($row));
+  if(!letter){ alert('请选择等级'); return; }
+  if(!scoreCheck.ok){ alert(scoreCheck.message); return; }
+  if(btn) btn.prop('disabled', true);
+  $.ajax({
+    url: '{% url "save_homework_grade" %}',
+    method: 'POST',
+    contentType: 'application/json',
+    headers: {'X-CSRFToken': csrfToken()},
+    data: JSON.stringify({homework_id: hw, letter_grade: letter, comment: comment, score: scoreCheck.value})
+  }).done(function(resp){
+    if(resp.code===0){
+      if(btn){ btn.text('已保存'); setTimeout(function(){ location.reload(); }, 300); }
+    }else{
+      alert(resp.message || '保存失败');
+      if(btn) btn.prop('disabled', false);
+    }
+  }).fail(function(xhr){
+    alert((xhr.responseJSON && xhr.responseJSON.message) || '保存失败');
+    if(btn) btn.prop('disabled', false);
+  });
+}
+$(document).on('click', '.btn-save-grade', function(){
+  saveOne($(this).data('hw'), $(this));
+});
+function collectDirtyItems(){
+  var items = [];
+  var err = null;
+  $('#submit-grade-table tbody tr').each(function(){
+    if(err) return;
+    var $tr = $(this);
+    var hw = $tr.find('.grade-letter').data('hw');
+    var letter = $tr.find('.grade-letter').val() || '';
+    var comment = $tr.find('.grade-comment').val() || '';
+    var scoreCheck = validateScore(scoreVal($tr));
+    var origL = $tr.attr('data-orig-letter') || '';
+    var origC = $tr.attr('data-orig-comment') || '';
+    var origS = $tr.attr('data-orig-score') || '';
+    if(!letter) return;
+    if(letter === origL && comment === origC && scoreVal($tr) === origS) return;
+    if(!scoreCheck.ok){ err = scoreCheck.message; return; }
+    items.push({homework_id: hw, letter_grade: letter, comment: comment, score: scoreCheck.value});
+  });
+  if(err) return {error: err, items: []};
+  return {error: null, items: items};
+}
+function saveAllGrades(){
+  var collected = collectDirtyItems();
+  if(collected.error){ alert(collected.error); return; }
+  var items = collected.items;
+  if(!items.length){
+    // 首次批量：原文无等级、当前已选等级的行也纳入
+    var err = null;
+    $('#submit-grade-table tbody tr').each(function(){
+      if(err) return;
+      var $tr = $(this);
+      var letter = $tr.find('.grade-letter').val() || '';
+      var origL = $tr.attr('data-orig-letter') || '';
+      if(!letter || origL) return;
+      var scoreCheck = validateScore(scoreVal($tr));
+      if(!scoreCheck.ok){ err = scoreCheck.message; return; }
+      items.push({
+        homework_id: $tr.find('.grade-letter').data('hw'),
+        letter_grade: letter,
+        comment: $tr.find('.grade-comment').val() || '',
+        score: scoreCheck.value
+      });
+    });
+    if(err){ alert(err); return; }
+  }
+  if(!items.length){ alert('没有未保存的修改'); return; }
+  var $btns = $('#btn-save-all-grades, #btn-save-all-grades-2');
+  $btns.prop('disabled', true);
+  $.ajax({
+    url: '{% url "save_homework_grades_batch" %}',
+    method: 'POST',
+    contentType: 'application/json',
+    headers: {'X-CSRFToken': csrfToken()},
+    data: JSON.stringify({items: items})
+  }).done(function(resp){
+    alert(resp.message || ('已保存 ' + ((resp.data&&resp.data.saved_count)||0) + ' 条'));
+    location.reload();
+  }).fail(function(xhr){
+    alert((xhr.responseJSON && xhr.responseJSON.message) || '批量保存失败');
+    $btns.prop('disabled', false);
+  });
+}
+$('#btn-save-all-grades, #btn-save-all-grades-2').on('click', saveAllGrades);
+
+$('#grade-filter').on('change', function(){
+  var mode = $(this).val();
+  $('#submit-grade-table tbody tr').each(function(){
+    var $tr = $(this);
+    var show = true;
+    if(mode === 'ungraded') show = $tr.attr('data-graded') === '0';
+    else if(mode === 'fail') show = $tr.attr('data-fail') === '1';
+    else if(mode === 'regrade') show = $tr.attr('data-regrade') === '1';
+    else if(mode === 'precheck_warn') show = $tr.attr('data-precheck-warn') === '1';
+    $tr.toggle(show);
+  });
+});
+
 function selAll(){ document.querySelectorAll('.hw-chk').forEach(function(c){c.checked=true;}); }
 function selNone(){ document.querySelectorAll('.hw-chk').forEach(function(c){c.checked=false;}); }
 
@@ -112,7 +337,6 @@ function dlHomework(){
   var list = [];
   document.querySelectorAll('.hw-chk:checked').forEach(function(c){ list.push(c.dataset.number); });
   if(!list.length){ alert('请先勾选要下载的学生作业！'); return; }
-
   var xhr = new XMLHttpRequest();
   xhr.open('POST', '{% url "download_homework_ByTeacher" %}', true);
   xhr.responseType = 'blob';

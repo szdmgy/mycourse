@@ -1,3 +1,4 @@
+from app01.utils import sanitize_file_type_setting
 import logging
 import os
 import openpyxl
@@ -86,7 +87,7 @@ def parse_task_excel(upload_file, course):
             seen_titles.add(title)
             tasks.append({
                 'title': title, 'content': content,
-                'fileType': file_type, 'display': display,
+                'fileType': sanitize_file_type_setting(file_type), 'display': display,
                 'duplicate': dup_reason is not None,
                 'dup_reason': dup_reason,
             })

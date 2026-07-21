@@ -15,6 +15,28 @@ import os
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+def _load_dotenv(path):
+    """轻量加载 .env，不覆盖已有环境变量。"""
+    if not path.is_file():
+        return
+    try:
+        for raw in path.read_text(encoding='utf-8-sig').splitlines():
+            line = raw.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            key, _, val = line.partition('=')
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key:
+                os.environ.setdefault(key, val)
+    except OSError:
+        pass
+
+_load_dotenv(BASE_DIR / '.env')
+
+# 管理 API 密钥（新写接口必填；未配置则写接口返回 503）
+MYCOURSE_API_KEY = os.environ.get('MYCOURSE_API_KEY', '').strip()
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -46,6 +68,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'app01.middleware.ImpersonationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'app01.middleware.RequestLogMiddleware',
@@ -63,6 +86,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'app01.context_processors.impersonation',
             ],
         },
     },
