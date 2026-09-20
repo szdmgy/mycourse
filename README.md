@@ -20,6 +20,14 @@ python manage.py migrate
 python manage.py createsuperuser
 ```
 
+### 门户接入
+
+本系统已接入教师统一门户（`APP_SLUG=mycourse`，生产端口 **8001**）：
+
+1. 在 `mycourse/mycourse/.env` 配置 `REGISTRY_URL`（门户地址）与 `PORTAL_TOKEN`（与门户相同）。
+2. 启动后自动报到/心跳；老师在门户有本系统教师账号时可见入口，可免登进入教师首页。
+3. 学生仍直接访问本系统登录页，不走门户。
+
 ### 启动服务
 
 | 用途 | 脚本 | 端口 |

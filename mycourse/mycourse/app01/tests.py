@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 
 from django.test import SimpleTestCase, override_settings
@@ -131,13 +131,35 @@ class CoverDateLogicTests(SimpleTestCase):
         codes = [i.code for i in issues]
         self.assertIn("cover_date_order", codes)
 
-    def test_submit_after_deadline(self):
-        task = SimpleNamespace(deadline=date(2026, 5, 1))
+    @override_settings(USE_TZ=True)
+    def test_submit_after_actual_date(self):
+        today = timezone.localdate()
+        future = today + timedelta(days=1)
+        task = SimpleNamespace(deadline=date(today.year + 1, 12, 31))
         issues = run_cover_date_precheck(
-            self._actual("2026年4月", "2026年6月1日"), task
+            self._actual(
+                f"{today.year}年{today.month}月",
+                f"{future.year}年{future.month}月{future.day}日",
+            ),
+            task,
         )
         codes = [i.code for i in issues]
-        self.assertIn("cover_date_deadline", codes)
+        self.assertIn("cover_date_after_actual", codes)
+
+    @override_settings(USE_TZ=True)
+    def test_submit_after_deadline_but_on_or_before_actual_ok(self):
+        today = timezone.localdate()
+        past_deadline = today - timedelta(days=10)
+        exp = today - timedelta(days=20)
+        task = SimpleNamespace(deadline=past_deadline)
+        issues = run_cover_date_precheck(
+            self._actual(
+                f"{exp.year}年{exp.month}月{exp.day}日",
+                f"{today.year}年{today.month}月{today.day}日",
+            ),
+            task,
+        )
+        self.assertEqual(issues, [])
 
     def test_absent_labels_skipped(self):
         task = SimpleNamespace(deadline=date(2026, 12, 31))

@@ -297,7 +297,10 @@ def _resolve_date_field(
 
 
 def run_cover_date_precheck(actual: dict, task) -> list[PrecheckIssue]:
-    """内置封面日期逻辑（规则包未覆盖这两项时使用）。"""
+    """内置封面日期逻辑（规则包未覆盖这两项时使用）。
+
+    task 保留以兼容调用方；提交时间对照实际提交日（当天），不再对照作业截止日期。
+    """
     issues: list[PrecheckIssue] = []
     exp_d = _resolve_date_field(actual, "实验时间", "实验时间", issues)
     sub_d = _resolve_date_field(actual, "实验报告提交时间", "实验报告提交时间", issues)
@@ -323,15 +326,14 @@ def run_cover_date_precheck(actual: dict, task) -> list[PrecheckIssue]:
             )
 
     if sub_d is not None:
-        deadline = getattr(task, "deadline", None)
-        if deadline is not None:
-            if sub_d.as_date() > deadline:
-                issues.append(
-                    PrecheckIssue(
-                        "cover_date_deadline",
-                        f"封面「实验报告提交时间」{sub_d.display()} 不能晚于作业截止日期 {deadline.isoformat()}",
-                    )
+        # 对照本次实际上传日期，允许逾期提交；禁止封面提交时间写到未来
+        if sub_d.as_date() > today:
+            issues.append(
+                PrecheckIssue(
+                    "cover_date_after_actual",
+                    f"封面「实验报告提交时间」{sub_d.display()} 不能晚于实际提交日期 {today.isoformat()}",
                 )
+            )
     return issues
 
 

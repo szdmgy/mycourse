@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'common.apps.CommonConfig',
     'app01.apps.App01Config',
 ]
 
@@ -163,6 +164,18 @@ CSRF_COOKIE_NAME = 'mycourse_csrftoken'
 
 # @login_required 未登录跳转地址须与 urlpatterns 中登录页一致，否则跳到不存在的 /accounts/login/ → 404
 LOGIN_URL = '/login/'
+
+# 门户适配
+APP_SLUG = os.environ.get('APP_SLUG', 'mycourse')
+APP_NAME = os.environ.get('APP_NAME', '实验报告收集系统')
+PORT = int(os.environ.get('PORT', '8001') or '8001')
+REGISTRY_MODE = os.environ.get('REGISTRY_MODE', 'standalone')
+REGISTRY_URL = os.environ.get('REGISTRY_URL', '')
+PORTAL_TOKEN = os.environ.get('PORTAL_TOKEN', '').strip()
+PORTAL_APP_NAME = APP_NAME
+PORTAL_RESOLVE_TEACHER = 'app01.portal.resolve_teacher'
+PORTAL_LIST_TEACHERS = 'app01.portal.list_teachers'
+PORTAL_SSO_DEFAULT_NEXT = '/teacherCourseList/'
 
 # 参考资料等单文件最大 500 MB 时，请求体需允许该量级（默认约 2.5MB 会触发 RequestDataTooBig）
 DATA_UPLOAD_MAX_MEMORY_SIZE = 500 * 1024 * 1024

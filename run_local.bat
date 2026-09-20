@@ -4,6 +4,7 @@ setlocal EnableDelayedExpansion
 
 set PYTHONUNBUFFERED=1
 set PYTHONIOENCODING=utf-8
+set PORT=9900
 
 cd /d "%~dp0mycourse\mycourse"
 

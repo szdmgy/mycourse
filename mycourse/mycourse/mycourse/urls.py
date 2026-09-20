@@ -15,15 +15,19 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path, re_path
+from django.urls import path, re_path, include
 from app01 import views
 
 from django.views import static ##新增
 from django.conf import settings ##新增
 from app01 import importcourse
+from common.portal_django import meta_urlpatterns
 
 
 urlpatterns = [
+    # 门户适配（须在 static 通配之前）
+    path('api/v1/portal/', include('common.portal_django')),
+    path('api/v1/', include((meta_urlpatterns, 'portal_meta'))),
     # API：学生作业提交状态（供考勤成绩计算等外部调用；暂不强制鉴权，见 docs）
     path('api/v1/submission-status/', views.submission_status_api),
     path('api/v1/tasks/<int:task_id>/', views.task_settings_api),
@@ -39,6 +43,7 @@ urlpatterns = [
     path('impersonate/stop/', views.impersonate_stop, name='impersonate_stop'),
     # 用户loading
     path('admin/', admin.site.urls),
+    path('', views.portal_entry_redirect),
     path('login/', views.log_in),
     path('logout/',views.log_out,name='logout'),
     path('user/', views.user),

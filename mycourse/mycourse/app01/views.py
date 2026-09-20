@@ -179,6 +179,16 @@ def submission_status_api(request):
 
 # ──────────────────────────── 认证相关 ────────────────────────────
 
+def portal_entry_redirect(request):
+    """门户 SSO 默认 next=/ 时落到此页，再按角色跳转。"""
+    if not request.user.is_authenticated:
+        return HttpResponseRedirect('/login/')
+    profile = models.UserProfile.objects.filter(user=request.user).first()
+    if request.user.is_superuser or (profile and profile.type == 'T'):
+        return HttpResponseRedirect('/teacherCourseList/')
+    return HttpResponseRedirect('/studentCourseList/')
+
+
 def log_in(request):
     return render(request, 'login.html')
 
@@ -204,6 +214,14 @@ def user(request):
         models.UserProfile.objects.create(user=user_obj, name=user_obj.username, gender='M', type='T')
     profile = models.UserProfile.objects.filter(user=user_obj).first()
     request.session['loginUserName'] = profile.name
+
+    # 兼容保留：本地登录可通知门户（前期门户不再要求核验）
+    if profile and profile.type == 'T':
+        try:
+            from common.portal_django import notify_native_login
+            notify_native_login(user_obj)
+        except Exception:
+            pass
 
     if is_default_password(profile.type, uname, pwd):
         request.session['password_change_error'] = '你现在使用的是缺省密码，为了你的帐户安全，请立即修改密码！'
