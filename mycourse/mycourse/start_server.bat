@@ -28,4 +28,4 @@ venv\Scripts\python.exe show_routes.py %PORT%
 
 echo [INFO] Starting Waitress production server on port %PORT% ...
 echo.
-waitress-serve --host=0.0.0.0 --port=%PORT% mycourse.wsgi:application
+waitress-serve --host=0.0.0.0 --port=%PORT% --max-request-body-size=2147483648 --channel-timeout=600 mycourse.wsgi:application

@@ -4,9 +4,10 @@ import re
 
 logger = logging.getLogger('app01')
 
-# 参考资料单文件上限（与需求文档一致）
-REF_MATERIAL_MAX_BYTES = 500 * 1024 * 1024
+# 参考资料单文件上限
+REF_MATERIAL_MAX_BYTES = 1024 * 1024 * 1024  # 1 GB
 REF_MATERIAL_MAX_MB = REF_MATERIAL_MAX_BYTES // (1024 * 1024)
+REF_MATERIAL_MAX_LABEL = '1 GB'
 
 
 def file_iterator(file_name, chunk_size=8192):

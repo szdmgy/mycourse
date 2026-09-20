@@ -71,7 +71,7 @@ from app01.utils import (
     safe_filename,
     can_manage_course,
     REF_MATERIAL_MAX_BYTES,
-    REF_MATERIAL_MAX_MB,
+    REF_MATERIAL_MAX_LABEL,
     reference_material_rel_dir,
     validate_reference_material_filename,
     DOC_FORBIDDEN_MSG,
@@ -1896,7 +1896,7 @@ def ref_material_save(request):
         if file_obj:
             if file_obj.size > REF_MATERIAL_MAX_BYTES:
                 return HttpResponse(
-                    f'文件超过 {REF_MATERIAL_MAX_MB} MB 限制', status=400
+                    f'文件超过 {REF_MATERIAL_MAX_LABEL} 限制', status=400
                 )
             ok, base, verr = validate_reference_material_filename(file_obj.name)
             if not ok:
@@ -1937,7 +1937,7 @@ def ref_material_save(request):
         return HttpResponse('请选择附件', status=400)
     if file_obj.size > REF_MATERIAL_MAX_BYTES:
         return HttpResponse(
-            f'文件超过 {REF_MATERIAL_MAX_MB} MB 限制', status=400
+            f'文件超过 {REF_MATERIAL_MAX_LABEL} 限制', status=400
         )
 
     ok, base, verr = validate_reference_material_filename(file_obj.name)

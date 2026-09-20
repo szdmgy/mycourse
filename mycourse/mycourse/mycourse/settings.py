@@ -177,8 +177,8 @@ PORTAL_RESOLVE_TEACHER = 'app01.portal.resolve_teacher'
 PORTAL_LIST_TEACHERS = 'app01.portal.list_teachers'
 PORTAL_SSO_DEFAULT_NEXT = '/teacherCourseList/'
 
-# 参考资料等单文件最大 500 MB 时，请求体需允许该量级（默认约 2.5MB 会触发 RequestDataTooBig）
-DATA_UPLOAD_MAX_MEMORY_SIZE = 500 * 1024 * 1024
+# 参考资料等单文件最大 1 GB；请求体略放宽以容纳 multipart 头（默认约 2.5MB 会触发 RequestDataTooBig）
+DATA_UPLOAD_MAX_MEMORY_SIZE = 1100 * 1024 * 1024
 
 # 取消严格的网页限制
 SECURE_CONTENT_TYPE_NOSNIFF = False
